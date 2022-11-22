@@ -1,9 +1,9 @@
 {
-    "id":"edge_plugin_anonymize",
-    "name": "anonymization_plugin",
-    "description": "Anonymization module for questionnaries",
+    "id":"edge_plugin_anonymize_questionnaire",
+    "name": "questionnaire_anonymization_plugin",
+    "description": "Anonymization module for questionnaires",
     "type": "utils",
     "version": "v0.0.1",
-    "url": "https://github.com/mescobrad-project/edge_plugin_anonymize",
+    "url": "https://github.com/mescobrad-project/questionnaire_anonymisation_plugin",
     "entry-point": "entrypoint.py"
 }
