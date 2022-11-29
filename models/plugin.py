@@ -12,7 +12,7 @@ import configparser
 import datetime
 
 
-PLUGIN_CONF_FILE_NAME = 'mescobrad_edge/plugins/edge_plugin_anonymize/plugin.config'
+PLUGIN_CONF_FILE_NAME = 'mescobrad_edge/plugins/questionnaire_anonymisation_plugin/plugin.config'
 PLUGIN_CONF_MAIN_SECTION = 'plugin-configuration'
 PLUGIN_OUTPUT_FILE_DEST = '.'
 

@@ -1,4 +1,4 @@
-from mescobrad_edge.plugins.edge_plugin_anonymize.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
+from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
 from datetime import date
 
 class GenericPlugin(EmptyPlugin):
