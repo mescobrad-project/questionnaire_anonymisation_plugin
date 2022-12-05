@@ -29,6 +29,8 @@ class GenericPlugin(EmptyPlugin):
         import os
         import pandas as pd
         import hashlib
+        import requests
+        import json
 
         """Remove all personal information from data."""
         files_to_anonymize = input_meta.file_name
@@ -37,28 +39,36 @@ class GenericPlugin(EmptyPlugin):
         if not os.path.isdir(folder):
             os.mkdir(folder)
 
-        columns_to_remove = ["name", "surname"]
+        # Get the list of variables indicating columns that needs to be removed
+        url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
+        response = requests.get(url, params = {'personaldata': "eq.True"})
+        json_response = json.loads(response.text)
+        columns_with_personal_data = [elem['name'] for elem in json_response]
+
         # load input data
         for file_name in files_to_anonymize:
+            columns_to_remove = []
             data = pd.read_csv("./" + file_name)
-            if "date_of_birth" in data.columns:
-                columns_to_remove.append("date_of_birth")
-                data["date_of_birth"] = pd.to_datetime(data["date_of_birth"], dayfirst=True)
+
+            columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
+
+            if "Question_date_of_birth" in data.columns:
+                data["Question_date_of_birth"] = pd.to_datetime(data["Question_date_of_birth"], dayfirst=True)
 
             # Generate list of unique ids
             personal_data = data.loc[:, columns_to_remove]
-            if "date_of_birth" in personal_data.columns:
-                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime("%d-%m-%Y")
+            if "Question_date_of_birth" in personal_data.columns:
+                personal_data['Question_date_of_birth'] = personal_data['Question_date_of_birth'].dt.strftime("%d-%m-%Y")
             list_id = []
 
             for i in range(data.shape[0]):
-                personal_id = "".join(personal_data.iloc[i])
+                personal_id = "".join(personal_data.iloc[i].astype(str))
                 id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
                 list_id.append(id)
 
             data.insert(0, "PID", list_id)
-            if 'date_of_birth' in personal_data.columns:
-               data['age'] = data["date_of_birth"].apply(self.age)
+            if 'Question_date_of_birth' in personal_data.columns:
+               data['age'] = data["Question_date_of_birth"].apply(self.age)
 
             data.to_csv("./" + file_name, index=False)
 
