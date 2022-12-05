@@ -1,6 +1,6 @@
 {
-    "id":"edge_plugin_anonymize_questionnaire",
-    "name": "questionnaire_anonymization_plugin",
+    "id":"questionnaire_anonymisation_plugin",
+    "name": "questionnaire_anonymisation_plugin",
     "description": "Anonymization module for questionnaires",
     "type": "utils",
     "version": "v0.0.1",
