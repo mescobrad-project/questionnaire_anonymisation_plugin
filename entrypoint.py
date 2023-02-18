@@ -24,6 +24,22 @@ class GenericPlugin(EmptyPlugin):
 
         return age
 
+    def check_file_content(self, url, columns):
+        """If the name of the columns in the uploaded csv file are not consisted with
+        the name of variables in metadata manager, file shouldn't be processed.
+        """
+        import requests
+        import json
+
+        response = requests.get(url)
+        json_response = json.loads(response.text)
+        metadata_variables = [elem['name'] for elem in json_response]
+
+        for column in columns:
+            if column not in metadata_variables:
+                return True
+
+        return False
 
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
         import os
@@ -31,6 +47,17 @@ class GenericPlugin(EmptyPlugin):
         import hashlib
         import requests
         import json
+        import boto3
+        from botocore.client import Config
+
+        # Init client
+        s3_local = boto3.resource('s3',
+                                  endpoint_url= self.__OBJ_STORAGE_URL_LOCAL__,
+                                  aws_access_key_id= self.__OBJ_STORAGE_ACCESS_ID_LOCAL__,
+                                  aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
+                                  config=Config(signature_version='s3v4'),
+                                  region_name=self.__OBJ_STORAGE_REGION__)
+
 
         """Remove all personal information from data."""
         files_to_anonymize = input_meta.file_name
@@ -45,10 +72,19 @@ class GenericPlugin(EmptyPlugin):
         json_response = json.loads(response.text)
         columns_with_personal_data = [elem['name'] for elem in json_response]
 
+        final_files_to_anonymize = []
         # load input data
         for file_name in files_to_anonymize:
             columns_to_remove = []
             data = pd.read_csv("./" + file_name)
+
+            if self.check_file_content(url, data.columns):
+                # If file is not valid delete file
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "personal_data/"+file_name).delete()
+                os.remove("./" + file_name)
+                continue
+            else:
+                final_files_to_anonymize.append(file_name)
 
             columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
 
@@ -79,4 +115,4 @@ class GenericPlugin(EmptyPlugin):
             data.to_csv(file_path, index=False)
 
         # return anonymized data
-        return PluginActionResponse("text/csv", files_content, files_to_anonymize)
+        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize)
