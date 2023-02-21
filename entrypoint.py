@@ -106,13 +106,13 @@ class GenericPlugin(EmptyPlugin):
             if 'Question_date_of_birth' in personal_data.columns:
                data['age'] = data["Question_date_of_birth"].apply(self.age)
 
-            data.to_csv("./" + file_name, index=False)
+            data.to_parquet("./" + file_name, index=False)
 
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
 
             file_path = folder + "/" + file_name
-            data.to_csv(file_path, index=False)
+            data.to_parquet(file_path, index=False)
 
         # return anonymized data
         return PluginActionResponse("text/csv", files_content, final_files_to_anonymize)
