@@ -84,7 +84,17 @@ class GenericPlugin(EmptyPlugin):
                 os.remove("./" + file_name)
                 continue
             else:
-                final_files_to_anonymize.append(file_name)
+                file_name_base, file_extension = os.path.splitext(file_name)
+
+                # Processed files will be stored in the parquet format
+                file_name_parquet = file_name_base + ".parquet"
+                final_files_to_anonymize.append(file_name_parquet)
+
+                # Remove downloaded csv file
+                os.remove("./" + file_name)
+
+                # Remove csv from the bucket
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "personal_data/"+file_name).delete()
 
             columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
 
@@ -106,12 +116,12 @@ class GenericPlugin(EmptyPlugin):
             if 'Question_date_of_birth' in personal_data.columns:
                data['age'] = data["Question_date_of_birth"].apply(self.age)
 
-            data.to_parquet("./" + file_name, index=False)
+            data.to_parquet("./" + file_name_parquet, index=False)
 
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
 
-            file_path = folder + "/" + file_name
+            file_path = folder + "/" + file_name_parquet
             data.to_parquet(file_path, index=False)
 
         # return anonymized data
