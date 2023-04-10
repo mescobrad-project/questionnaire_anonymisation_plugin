@@ -10,6 +10,7 @@ import subprocess
 import virtualenv
 import configparser
 import datetime
+import time
 
 
 PLUGIN_CONF_FILE_NAME = 'mescobrad_edge/plugins/questionnaire_anonymisation_plugin/plugin.config'
@@ -24,10 +25,10 @@ class PluginActionResponse():
 
 @dataclass
 class PluginExchangeMetadata():
-    file_name: str = None
+    file_name: List[str] = None
     file_content_type: str = None
-    file_size: int = None
-    created_on: str = None
+    file_size: List[int] = None
+    created_on: List[str] = None
 
 
 class EmptyPlugin():
@@ -74,12 +75,8 @@ class EmptyPlugin():
     def __store__(self, output_file: PluginActionResponse) -> PluginExchangeMetadata:
         files_created_on = []
         files_size = []
-        for file_data, file_name in zip(output_file.file_content, output_file.file_name):
-            files_created_on.append(str(datetime.datetime.now()).replace(":", "_"))
-
-            # Create output file
-            with open(f"{PLUGIN_OUTPUT_FILE_DEST}/{file_name}", 'wb') as dest_file:
-                dest_file.write(file_data.encode() if type(file_data)==str else file_data)
+        for file_name in output_file.file_name:
+            files_created_on.append(str(round(time.time()*1000)))
 
             # Get its size
             files_size.append(os.path.getsize(f"{PLUGIN_OUTPUT_FILE_DEST}/{file_name}"))
