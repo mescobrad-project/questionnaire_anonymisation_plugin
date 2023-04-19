@@ -62,6 +62,7 @@ class GenericPlugin(EmptyPlugin):
         """Remove all personal information from data."""
         files_to_anonymize = input_meta.file_name
         files_content = []
+        file_path_template = "./{filename}"
         folder = "anonymous_data"
         if not os.path.isdir(folder):
             os.mkdir(folder)
@@ -76,12 +77,12 @@ class GenericPlugin(EmptyPlugin):
         # load input data
         for file_name in files_to_anonymize:
             columns_to_remove = []
-            data = pd.read_csv("./" + file_name)
+            data = pd.read_csv(file_path_template.format(filename=file_name))
 
             if self.check_file_content(url, data.columns):
                 # If file is not valid delete file
-                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "personal_data/"+file_name).delete()
-                os.remove("./" + file_name)
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "csv_data/"+file_name).delete()
+                os.remove(file_path_template.format(filename=file_name))
                 continue
             else:
                 file_name_base, file_extension = os.path.splitext(file_name)
@@ -91,10 +92,10 @@ class GenericPlugin(EmptyPlugin):
                 final_files_to_anonymize.append(file_name_parquet)
 
                 # Remove downloaded csv file
-                os.remove("./" + file_name)
+                os.remove(file_path_template.format(filename=file_name))
 
                 # Remove csv from the bucket
-                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "personal_data/"+file_name).delete()
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "csv_data/"+file_name).delete()
 
             columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
 
@@ -113,14 +114,13 @@ class GenericPlugin(EmptyPlugin):
                 list_id.append(id)
 
             data.insert(0, "PID", list_id)
+            data.to_parquet(file_path_template.format(filename=file_name_parquet), index=False)
+
             if 'Question_date_of_birth' in personal_data.columns:
                data['age'] = data["Question_date_of_birth"].apply(self.age)
 
-            data.to_parquet("./" + file_name_parquet, index=False)
-
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
-
             file_path = folder + "/" + file_name_parquet
             data.to_parquet(file_path, index=False)
 
