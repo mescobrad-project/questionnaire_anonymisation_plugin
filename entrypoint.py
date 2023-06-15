@@ -41,6 +41,103 @@ class GenericPlugin(EmptyPlugin):
 
         return False
 
+    def download_script(self, folder_path, file_name):
+        """
+        Download python file needed to trigger the calculation of the latent variable
+        """
+
+        import os
+        import boto3
+        from botocore.config import Config
+
+        s3 = boto3.resource('s3',
+                    endpoint_url= self.__OBJ_STORAGE_URL__,
+                    aws_access_key_id= self.__OBJ_STORAGE_ACCESS_ID__,
+                    aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET__,
+                    config=Config(signature_version='s3v4'),
+                    region_name=self.__OBJ_STORAGE_REGION__)
+
+        path_to_download = os.path.join(folder_path, file_name)
+
+        # Download script with defintion of latent variables calculation
+        # TO DO - Determine where exactly files will be placed within Data Lake
+        s3.Bucket(self.__OBJ_STORAGE_BUCKET__).download_file("test_latent_calc/"+file_name, path_to_download)
+
+    def create_command(self, key, row, variables):
+        """
+        Create the command which will trigger the corresponding script to run
+        with correctly sent parameters
+        """
+
+        create_command = ["python", key]
+        for var in variables:
+            create_command.extend(["--"+var, str(row[var])])
+        return create_command
+
+    def calculate_latent_variables(self, columns, data):
+        """
+        Perform the calculation of the latent variables which are determine by the data
+        sent as an input csv file to process.
+        """
+        import json
+        import requests
+        import subprocess
+        import shutil
+        import os
+
+        # Find the latent variables if there is reference field different from None
+        url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
+        # TO DO -- reference field doesn't exist currently
+        # response = requests.get(url, params={"reference":"neq.null"})
+        # json_response = json.loads(response.text)
+        # Latent variables are retrieved
+        # latent_variables = [[elem['name'], elem['reference']] for elem in json_response]
+
+        # Retrieve the latent variables which uses the variables from columns in csv
+        # TO DO -- Retrieve mapping between simple variables and latent variables, ones
+        # the table is added
+
+        # TO DO - Remove once entire infrustructure is ready
+        variables = {"test_funkcija": ["var1", "var2", "var3"],
+                     "test_latent": ["var4", "var5", "var6"]} # this will be the result of the missing part of code
+
+        latent_variables_to_calculate = []
+
+        # Check if all variables needed for calculation of the latent variable is
+        # present in the input data, if not calculation can't be performed
+        for key in variables:
+            if all(element in columns for element in variables[key]):
+                latent_variables_to_calculate.append(key)
+
+        # Path to download script to calculate corresponding latent variable
+        folder_script_path = "mescobrad_edge/plugins/questionnaire_anonymisation_plugin/latent_calc/"
+        os.makedirs(folder_script_path, exist_ok=True)
+
+        # Extract columns used for calculations
+        # Perform result element by element
+        # Final result add to the dataframe
+
+        for lvar in latent_variables_to_calculate:
+            self.download_script(folder_script_path, lvar+".py")
+            result_column = []
+            for index, row in data.iterrows():
+                # Create the correct subprocess call
+                command = self.create_command(folder_script_path+lvar+".py", row, variables[lvar])
+                # Execute the calculation of the corresponding latent variable
+                try:
+                    result = subprocess.run(command, capture_output=True, text=True, check=True)
+                    result_column.append(result.stdout.strip())
+                except subprocess.CalledProcessError as e:
+                    print("Error:", e)
+
+            # Add the new latent variable and it's corresponding values into initial dataframe
+            data[lvar] = result_column
+
+        # Remove downloaded scripts
+        shutil.rmtree(folder_script_path)
+
+        return data
+
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
         import os
         import pandas as pd
@@ -57,7 +154,6 @@ class GenericPlugin(EmptyPlugin):
                                   aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
                                   config=Config(signature_version='s3v4'),
                                   region_name=self.__OBJ_STORAGE_REGION__)
-
 
         """Remove all personal information from data."""
         files_to_anonymize = input_meta.file_name
@@ -96,6 +192,8 @@ class GenericPlugin(EmptyPlugin):
 
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "csv_data/"+file_name).delete()
+
+            data = self.calculate_latent_variables(data.columns, data)
 
             columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
 
