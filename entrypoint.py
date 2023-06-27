@@ -99,13 +99,13 @@ class GenericPlugin(EmptyPlugin):
 
             columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
 
-            if "Question_date_of_birth" in data.columns:
-                data["Question_date_of_birth"] = pd.to_datetime(data["Question_date_of_birth"], dayfirst=True)
+            if "date_of_birth" in data.columns:
+                data["date_of_birth"] = pd.to_datetime(data["date_of_birth"], dayfirst=True)
 
             # Generate list of unique ids
             personal_data = data.loc[:, columns_to_remove]
-            if "Question_date_of_birth" in personal_data.columns:
-                personal_data['Question_date_of_birth'] = personal_data['Question_date_of_birth'].dt.strftime("%d-%m-%Y")
+            if "date_of_birth" in personal_data.columns:
+                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime("%d-%m-%Y")
             list_id = []
 
             for i in range(data.shape[0]):
@@ -116,8 +116,8 @@ class GenericPlugin(EmptyPlugin):
             data.insert(0, "PID", list_id)
             data.to_parquet(file_path_template.format(filename=file_name_parquet), index=False)
 
-            if 'Question_date_of_birth' in personal_data.columns:
-               data['age'] = data["Question_date_of_birth"].apply(self.age)
+            if 'date_of_birth' in personal_data.columns:
+               data['age'] = data["date_of_birth"].apply(self.age)
 
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
