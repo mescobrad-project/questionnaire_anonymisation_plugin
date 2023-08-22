@@ -57,7 +57,7 @@ class GenericPlugin(EmptyPlugin):
                     config=Config(signature_version='s3v4'),
                     region_name=self.__OBJ_STORAGE_REGION__)
 
-        path_to_file = file_name.split("s3a://" + self.__OBJ_STORAGE_BUCKET__ + "/")[1] 
+        path_to_file = file_name.split("s3a://" + self.__OBJ_STORAGE_BUCKET__ + "/")[1]
         path_to_download = os.path.join(folder_path, os.path.basename(file_name))
 
         # Download script with defintion of latent variables calculation
@@ -86,96 +86,97 @@ class GenericPlugin(EmptyPlugin):
         import subprocess
         import shutil
         import os
-        
+
         # Get all variables according to columns from csv
         variables = self.get_all_variables_from_columns(columns)
 
-        # Get all latent variables according to fetched variables
-        latent_variables_to_calculate = self.get_latent_variables_info(variables)
-                
-        latent_to_variables_mapping = {}
-        # Map variables to format -> latent_variable_calculation_file_name : list of variables needed for calculation
-        for elem in latent_variables_to_calculate:
-            variables = variables[elem['variable_id']]
-            key = os.path.basename(elem['formula'])
-            if key not in latent_to_variables_mapping:
-                latent_to_variables_mapping[key] = variables
-            else :
-                latent_to_variables_mapping[key].append(variables)                                     
+        if variables:
+            # Get all latent variables according to fetched variables
+            latent_variables_to_calculate = self.get_latent_variables_info(variables)
 
-        # Path to download script to calculate corresponding latent variable
-        folder_script_path = "mescobrad_edge/plugins/questionnaire_anonymisation_plugin/latent_calc/"
-        os.makedirs(folder_script_path, exist_ok=True)
+            latent_to_variables_mapping = {}
+            # Map variables to format -> latent_variable_calculation_file_name : list of variables needed for calculation
+            for elem in latent_variables_to_calculate:
+                variables = variables[elem['variable_id']]
+                key = os.path.basename(elem['formula'])
+                if key not in latent_to_variables_mapping:
+                    latent_to_variables_mapping[key] = variables
+                else :
+                    latent_to_variables_mapping[key].append(variables)
 
-        # Extract columns used for calculations
-        # Perform result element by element
-        # Final result add to the dataframe
+            # Path to download script to calculate corresponding latent variable
+            folder_script_path = "mescobrad_edge/plugins/questionnaire_anonymisation_plugin/latent_calc/"
+            os.makedirs(folder_script_path, exist_ok=True)
 
-        for lvar in latent_variables_to_calculate:
-            key = os.path.basename(elem['formula'])
-            self.download_script(folder_script_path, lvar['formula'])
-            result_column = []
-            for index, row in data.iterrows():
-                # Create the correct subprocess call
-                command = self.create_command(folder_script_path+key, row, latent_to_variables_mapping[key])
-                # Execute the calculation of the corresponding latent variable
-                try:
-                    result = subprocess.run(command, capture_output=True, text=True, check=True)
-                    result_column.append(result.stdout.strip())
-                except subprocess.CalledProcessError as e:
-                    print("Error:", e)
+            # Extract columns used for calculations
+            # Perform result element by element
+            # Final result add to the dataframe
 
-            # Add the new latent variable and it's corresponding values into initial dataframe
-            data[lvar['name']] = result_column
-        # Remove downloaded scripts
-        shutil.rmtree(folder_script_path)
+            for lvar in latent_variables_to_calculate:
+                key = os.path.basename(elem['formula'])
+                self.download_script(folder_script_path, lvar['formula'])
+                result_column = []
+                for index, row in data.iterrows():
+                    # Create the correct subprocess call
+                    command = self.create_command(folder_script_path+key, row, latent_to_variables_mapping[key])
+                    # Execute the calculation of the corresponding latent variable
+                    try:
+                        result = subprocess.run(command, capture_output=True, text=True, check=True)
+                        result_column.append(result.stdout.strip())
+                    except subprocess.CalledProcessError as e:
+                        print("Error:", e)
+
+                # Add the new latent variable and it's corresponding values into initial dataframe
+                data[lvar['name']] = result_column
+            # Remove downloaded scripts
+            shutil.rmtree(folder_script_path)
 
         return data
-    
+
     def get_all_variables_from_columns(self, columns):
-        
+
         import json
         import requests
-        
+
         or_params = []
         for elem in columns:
             or_params.append("name.eq."+elem)
         paramquery = ','.join(or_params)
-        
+
         # Get variables by names in columns
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
         latent_join_table_response = requests.get(latent_join_table_url, params={"select":"*,variables_variables!fk_latent_variable(*)","or":"("+paramquery+")","variables.order":"variable_order"})
         latent_join_json = json.loads(latent_join_table_response.text)
-        
+
         variables = {}
         # Map in format -> latent_variable_id : list of variables needed for calculation
         for elem in latent_join_json:
             variable_name = elem['name']
             latent_variable_list = elem['variables_variables']
-            
+
             for element in latent_variable_list:
                 latent_variable_id = element['latent_variable_id']
                 if latent_variable_id not in variables:
                     variables[latent_variable_id] = []
                 variables[latent_variable_id].append(variable_name)
-                
+
         return variables
-    
+
     def get_latent_variables_info(self, latent_variables):
-        
+
         import json
         import requests
-        
+
         or_params = []
         for elem in latent_variables.keys():
             or_params.append("variable_id.eq."+elem)
         paramquery = ','.join(or_params)
-        
+
         # Get all latent variables and path to the file needed for calculation
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
         latent_join_table_response = requests.get(latent_join_table_url, params={"or":"("+paramquery+")","formula":"neq.null"})
         latent_join_json = json.loads(latent_join_table_response.text)
-        
+
         return latent_join_json
 
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
