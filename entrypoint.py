@@ -1,6 +1,7 @@
 from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
 from datetime import date
 
+
 class GenericPlugin(EmptyPlugin):
 
     def age(self, birthdate):
@@ -8,7 +9,8 @@ class GenericPlugin(EmptyPlugin):
         today = date.today()
 
         # A bool that represents if today's day/month precedes the birth day/month
-        one_or_zero = ((today.month, today.day) < (birthdate.month, birthdate.day))
+        one_or_zero = ((today.month, today.day) <
+                       (birthdate.month, birthdate.day))
 
         # Calculate the difference in years from the date object's components
         year_difference = today.year - birthdate.year
@@ -24,159 +26,106 @@ class GenericPlugin(EmptyPlugin):
 
         return age
 
-    def check_file_content(self, url, columns):
+    import pandas as pd
+
+    def create_list_of_answer(self, series):
+        answers = series.get("measure_level", "")
+        return answers.split(',')
+
+    def check_max_answer_allowed(self, series, json_response_df):
+        curr_max_allowed = json_response_df.loc[json_response_df['name']
+                                                == series.name, 'answer_number'].values[0]
+        curr_max_allowed = int(curr_max_allowed)
+        answers_list = self.create_list_of_answer(series)
+        return curr_max_allowed < len(answers_list)
+
+    def is_numeric_value_in_list(self, data, value):
+        for el in data:
+            el_str = str(el)
+            if el_str.isdigit() and str(value).isdigit():
+                if int(value) == int(el_str):
+                    return True
+        return False
+
+    def split_and_clean(self, curr_list_answers, token=r'[,=]'):
+        curr_list_answers_list = list(
+            curr_list_answers.str.split(token).values)
+        curr_list_answers_list = list(
+            map(str.strip, [item for sublist in curr_list_answers_list for item in sublist]))
+        return curr_list_answers_list
+
+    def check_data_type(self, series, json_response_df):
+        import numpy as np
+        curr_data_type = json_response_df.loc[json_response_df['name']
+                                              == series.name, 'data_type'].values[0]
+        curr_list_answers = json_response_df.loc[json_response_df['name']
+                                                 == series.name, 'measure_level']
+        curr_data_type = curr_data_type.lower()
+        if curr_data_type == "categorical":
+            curr_list_answers_list = self.split_and_clean(
+                curr_list_answers, r'[,=]')
+            for value in series.values:
+                if not self.is_numeric_value_in_list(curr_list_answers_list, value):
+                    return True
+            return False
+
+        elif curr_data_type == "ordinal":
+            curr_list_answers_list = self.split_and_clean(
+                curr_list_answers, r'[,]')
+            for value in series.values:
+                if value not in curr_list_answers_list:
+                    return True
+
+            return False
+
+        elif curr_data_type == "numeric":
+            for value in series.values:
+                if not isinstance(value, (int, np.int64)):
+                    return True
+
+            return False
+
+        elif curr_data_type == "boolean":
+            accepted_boolean_values = ["Yes", "Y", "No", "N"]
+            for value in series.values:
+                if value not in accepted_boolean_values:
+                    return True
+            return False
+
+        elif curr_data_type == "text":
+            for value in series.values:
+                if not isinstance(value, str):
+                    return True
+
+        return False
+
+    def custom_verification(self, series, json_response_df):
+        return self.check_data_type(series, json_response_df) and self.check_max_answer_allowed(series, json_response_df)
+
+    def check_file_content(self, url, data):
         """If the name of the columns in the uploaded csv file are not consisted with
         the name of variables in metadata manager, file shouldn't be processed.
         """
         import requests
         import json
+        import pandas as pd
 
         response = requests.get(url)
         json_response = json.loads(response.text)
-        metadata_variables = [elem['name'] for elem in json_response]
+        json_response_df = pd.DataFrame(json_response)
 
-        for column in columns:
-            if column not in metadata_variables:
-                return True
-
-        return False
-
-    def download_script(self, folder_path, file_name):
-        """
-        Download python file needed to trigger the calculation of the latent variable
-        """
-
-        import os
-        import boto3
-        from botocore.config import Config
-
-        s3 = boto3.resource('s3',
-                    endpoint_url= self.__OBJ_STORAGE_URL__,
-                    aws_access_key_id= self.__OBJ_STORAGE_ACCESS_ID__,
-                    aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET__,
-                    config=Config(signature_version='s3v4'),
-                    region_name=self.__OBJ_STORAGE_REGION__)
-
-        path_to_file = file_name.split("s3a://" + self.__OBJ_STORAGE_BUCKET__ + "/")[1] 
-        path_to_download = os.path.join(folder_path, os.path.basename(file_name))
-
-        # Download script with defintion of latent variables calculation
-        try:
-          s3.Bucket(self.__OBJ_STORAGE_BUCKET__).download_file(path_to_file, path_to_download)
-          print(f"File '{path_to_file}' downloaded successfully to '{path_to_download}'.")
-        except Exception as e:
-          print(f"Error downloading file: {e}")
-
-    def create_command(self, key, row, variables):
-        """
-        Create the command which will trigger the corresponding script to run
-        with correctly sent parameters
-        """
-
-        create_command = ["python", key]
-        for var in variables:
-            create_command.extend(["--"+var, str(row[var])])
-        return create_command
-
-    def calculate_latent_variables(self, columns, data):
-        """
-        Perform the calculation of the latent variables which are determine by the data
-        sent as an input csv file to process.
-        """
-        import subprocess
-        import shutil
-        import os
-        
-        # Get all variables according to columns from csv
-        variables = self.get_all_variables_from_columns(columns)
-
-        # Get all latent variables according to fetched variables
-        latent_variables_to_calculate = self.get_latent_variables_info(variables)
-                
-        latent_to_variables_mapping = {}
-        # Map variables to format -> latent_variable_calculation_file_name : list of variables needed for calculation
-        for elem in latent_variables_to_calculate:
-            variables = variables[elem['variable_id']]
-            key = os.path.basename(elem['formula'])
-            if key not in latent_to_variables_mapping:
-                latent_to_variables_mapping[key] = variables
-            else :
-                latent_to_variables_mapping[key].append(variables)                                     
-
-        # Path to download script to calculate corresponding latent variable
-        folder_script_path = "mescobrad_edge/plugins/questionnaire_anonymisation_plugin/latent_calc/"
-        os.makedirs(folder_script_path, exist_ok=True)
-
-        # Extract columns used for calculations
-        # Perform result element by element
-        # Final result add to the dataframe
-
-        for lvar in latent_variables_to_calculate:
-            key = os.path.basename(elem['formula'])
-            self.download_script(folder_script_path, lvar['formula'])
-            result_column = []
-            for index, row in data.iterrows():
-                # Create the correct subprocess call
-                command = self.create_command(folder_script_path+key, row, latent_to_variables_mapping[key])
-                # Execute the calculation of the corresponding latent variable
-                try:
-                    result = subprocess.run(command, capture_output=True, text=True, check=True)
-                    result_column.append(result.stdout.strip())
-                except subprocess.CalledProcessError as e:
-                    print("Error:", e)
-
-            # Add the new latent variable and it's corresponding values into initial dataframe
-            data[lvar['name']] = result_column
-        # Remove downloaded scripts
-        shutil.rmtree(folder_script_path)
-
-        return data
-    
-    def get_all_variables_from_columns(self, columns):
-        
-        import json
-        import requests
-        
-        or_params = []
-        for elem in columns:
-            or_params.append("name.eq."+elem)
-        paramquery = ','.join(or_params)
-        
-        # Get variables by names in columns
-        latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        latent_join_table_response = requests.get(latent_join_table_url, params={"select":"*,variables_variables!fk_latent_variable(*)","or":"("+paramquery+")","variables.order":"variable_order"})
-        latent_join_json = json.loads(latent_join_table_response.text)
-        
-        variables = {}
-        # Map in format -> latent_variable_id : list of variables needed for calculation
-        for elem in latent_join_json:
-            variable_name = elem['name']
-            latent_variable_list = elem['variables_variables']
-            
-            for element in latent_variable_list:
-                latent_variable_id = element['latent_variable_id']
-                if latent_variable_id not in variables:
-                    variables[latent_variable_id] = []
-                variables[latent_variable_id].append(variable_name)
-                
-        return variables
-    
-    def get_latent_variables_info(self, latent_variables):
-        
-        import json
-        import requests
-        
-        or_params = []
-        for elem in latent_variables.keys():
-            or_params.append("variable_id.eq."+elem)
-        paramquery = ','.join(or_params)
-        
-        # Get all latent variables and path to the file needed for calculation
-        latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        latent_join_table_response = requests.get(latent_join_table_url, params={"or":"("+paramquery+")","formula":"neq.null"})
-        latent_join_json = json.loads(latent_join_table_response.text)
-        
-        return latent_join_json
+        for column_name, series in data.iteritems():
+            if column_name in json_response_df['name'].values:
+                custom_verification = self.custom_verification(
+                    series, json_response_df[json_response_df['name'] == column_name])
+                if custom_verification is True:
+                    print("File is not valid")
+                    raise ValueError("File is not valid")
+            else:
+                raise ValueError(
+                    "File has unrecognised column(s): " + column_name)
+        print("File is valid")
+        return False  # File is valid
 
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
         import os
@@ -189,9 +138,9 @@ class GenericPlugin(EmptyPlugin):
 
         # Init client
         s3_local = boto3.resource('s3',
-                                  endpoint_url= self.__OBJ_STORAGE_URL_LOCAL__,
-                                  aws_access_key_id= self.__OBJ_STORAGE_ACCESS_ID_LOCAL__,
-                                  aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
+                                  endpoint_url=self.__OBJ_STORAGE_URL_LOCAL__,
+                                  aws_access_key_id=self.__OBJ_STORAGE_ACCESS_ID_LOCAL__,
+                                  aws_secret_access_key=self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
                                   config=Config(signature_version='s3v4'),
                                   region_name=self.__OBJ_STORAGE_REGION__)
 
@@ -205,7 +154,7 @@ class GenericPlugin(EmptyPlugin):
 
         # Get the list of variables indicating columns that needs to be removed
         url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        response = requests.get(url, params = {'personaldata': "eq.True"})
+        response = requests.get(url, params={'personaldata': "eq.True"})
         json_response = json.loads(response.text)
         columns_with_personal_data = [elem['name'] for elem in json_response]
 
@@ -215,9 +164,10 @@ class GenericPlugin(EmptyPlugin):
             columns_to_remove = []
             data = pd.read_csv(file_path_template.format(filename=file_name))
 
-            if self.check_file_content(url, data.columns):
+            if self.check_file_content(url, data):
                 # If file is not valid delete file
-                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "csv_data/"+file_name).delete()
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
+                                "csv_data/"+file_name).delete()
                 os.remove(file_path_template.format(filename=file_name))
                 continue
             else:
@@ -231,18 +181,21 @@ class GenericPlugin(EmptyPlugin):
                 os.remove(file_path_template.format(filename=file_name))
 
                 # Remove csv from the bucket
-                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "csv_data/"+file_name).delete()
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
+                                "csv_data/"+file_name).delete()
 
-            data = self.calculate_latent_variables(data.columns, data)
-            columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
+            columns_to_remove = [
+                column for column in data.columns if column in columns_with_personal_data]
 
             if "date_of_birth" in data.columns:
-                data["date_of_birth"] = pd.to_datetime(data["date_of_birth"], dayfirst=True)
+                data["date_of_birth"] = pd.to_datetime(
+                    data["date_of_birth"], dayfirst=True)
 
             # Generate list of unique ids
             personal_data = data.loc[:, columns_to_remove]
             if "date_of_birth" in personal_data.columns:
-                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime("%d-%m-%Y")
+                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
+                    "%d-%m-%Y")
             list_id = []
 
             for i in range(data.shape[0]):
@@ -251,10 +204,11 @@ class GenericPlugin(EmptyPlugin):
                 list_id.append(id)
 
             data.insert(0, "PID", list_id)
-            data.to_parquet(file_path_template.format(filename=file_name_parquet), index=False)
+            data.to_parquet(file_path_template.format(
+                filename=file_name_parquet), index=False)
 
             if 'date_of_birth' in personal_data.columns:
-               data['age'] = data["date_of_birth"].apply(self.age)
+                data['age'] = data["date_of_birth"].apply(self.age)
 
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
