@@ -54,50 +54,55 @@ class GenericPlugin(EmptyPlugin):
             map(str.strip, [item for sublist in curr_list_answers_list for item in sublist]))
         return curr_list_answers_list
 
+    def check_categorical(self, series, measure_level):
+        curr_list_answers_list = self.split_and_clean(measure_level, r'[,=]')
+        for value in series.values:
+            if not self.is_numeric_value_in_list(curr_list_answers_list, value):
+                return True
+        return False
+
+    def check_ordinal(self, series, measure_level):
+        curr_list_answers_list = self.split_and_clean(measure_level, r'[,]')
+        for value in series.values:
+            if value not in curr_list_answers_list:
+                return True
+        return False
+
+    def check_numeric(self, series):
+        for value in series.values:
+            if not isinstance(value, int):
+                return True
+        return False
+
+    def check_boolean(self, series):
+        accepted_boolean_values = ["Yes", "Y", "No", "N"]
+        for value in series.values:
+            if value not in accepted_boolean_values:
+                return True
+        return False
+
+    def check_text(self, series):
+        for value in series.values:
+            if not isinstance(value, str):
+                return True
+        return False
+
     def check_data_type(self, series, json_response_df):
-        import numpy as np
         curr_data_type = json_response_df.loc[json_response_df['name']
                                               == series.name, 'data_type'].values[0]
         curr_list_answers = json_response_df.loc[json_response_df['name']
                                                  == series.name, 'measure_level']
         curr_data_type = curr_data_type.lower()
         if curr_data_type == "categorical":
-            curr_list_answers_list = self.split_and_clean(
-                curr_list_answers, r'[,=]')
-            for value in series.values:
-                if not self.is_numeric_value_in_list(curr_list_answers_list, value):
-                    return True
-            return False
-
+            return self.check_categorical(series, curr_list_answers)
         elif curr_data_type == "ordinal":
-            curr_list_answers_list = self.split_and_clean(
-                curr_list_answers, r'[,]')
-            for value in series.values:
-                if value not in curr_list_answers_list:
-                    return True
-
-            return False
-
+            return self.check_ordinal(series, curr_list_answers)
         elif curr_data_type == "numeric":
-            for value in series.values:
-                if not isinstance(value, (int, np.int64)):
-                    return True
-
-            return False
-
+            return self.check_numeric(series)
         elif curr_data_type == "boolean":
-            accepted_boolean_values = ["Yes", "Y", "No", "N"]
-            for value in series.values:
-                if value not in accepted_boolean_values:
-                    return True
-            return False
-
+            self.check_boolean(series)
         elif curr_data_type == "text":
-            for value in series.values:
-                if not isinstance(value, str):
-                    return True
-
-        return False
+            self.check_text(series)
 
     def custom_verification(self, series, json_response_df):
         return self.check_data_type(series, json_response_df) and self.check_max_answer_allowed(series, json_response_df)
@@ -113,7 +118,6 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
-        
 
         for column_name, series in data.iteritems():
             if column_name in json_response_df['name'].values:
@@ -125,7 +129,6 @@ class GenericPlugin(EmptyPlugin):
             else:
                 raise ValueError(
                     "File has unrecognised column(s): " + column_name)
-        print("File is valid")
         return False  # File is valid
 
     def download_script(self, folder_path, file_name):
@@ -138,21 +141,25 @@ class GenericPlugin(EmptyPlugin):
         from botocore.config import Config
 
         s3 = boto3.resource('s3',
-                    endpoint_url= self.__OBJ_STORAGE_URL__,
-                    aws_access_key_id= self.__OBJ_STORAGE_ACCESS_ID__,
-                    aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET__,
-                    config=Config(signature_version='s3v4'),
-                    region_name=self.__OBJ_STORAGE_REGION__)
+                            endpoint_url=self.__OBJ_STORAGE_URL__,
+                            aws_access_key_id=self.__OBJ_STORAGE_ACCESS_ID__,
+                            aws_secret_access_key=self.__OBJ_STORAGE_ACCESS_SECRET__,
+                            config=Config(signature_version='s3v4'),
+                            region_name=self.__OBJ_STORAGE_REGION__)
 
-        path_to_file = file_name.split("s3a://" + self.__OBJ_STORAGE_BUCKET__ + "/")[1]
-        path_to_download = os.path.join(folder_path, os.path.basename(file_name))
+        path_to_file = file_name.split(
+            "s3a://" + self.__OBJ_STORAGE_BUCKET__ + "/")[1]
+        path_to_download = os.path.join(
+            folder_path, os.path.basename(file_name))
 
         # Download script with defintion of latent variables calculation
         try:
-          s3.Bucket(self.__OBJ_STORAGE_BUCKET__).download_file(path_to_file, path_to_download)
-          print(f"File '{path_to_file}' downloaded successfully to '{path_to_download}'.")
+            s3.Bucket(self.__OBJ_STORAGE_BUCKET__).download_file(
+                path_to_file, path_to_download)
+            print(
+                f"File '{path_to_file}' downloaded successfully to '{path_to_download}'.")
         except Exception as e:
-          print(f"Error downloading file: {e}")
+            print(f"Error downloading file: {e}")
 
     def create_command(self, key, row, variables):
         """
@@ -179,7 +186,8 @@ class GenericPlugin(EmptyPlugin):
 
         if variables:
             # Get all latent variables according to fetched variables
-            latent_variables_to_calculate = self.get_latent_variables_info(variables)
+            latent_variables_to_calculate = self.get_latent_variables_info(
+                variables)
 
             latent_to_variables_mapping = {}
             # Map variables to format -> latent_variable_calculation_file_name : list of variables needed for calculation
@@ -188,7 +196,7 @@ class GenericPlugin(EmptyPlugin):
                 key = os.path.basename(elem['formula'])
                 if key not in latent_to_variables_mapping:
                     latent_to_variables_mapping[key] = variables
-                else :
+                else:
                     latent_to_variables_mapping[key].append(variables)
 
             # Path to download script to calculate corresponding latent variable
@@ -205,10 +213,12 @@ class GenericPlugin(EmptyPlugin):
                 result_column = []
                 for index, row in data.iterrows():
                     # Create the correct subprocess call
-                    command = self.create_command(folder_script_path+key, row, latent_to_variables_mapping[key])
+                    command = self.create_command(
+                        folder_script_path+key, row, latent_to_variables_mapping[key])
                     # Execute the calculation of the corresponding latent variable
                     try:
-                        result = subprocess.run(command, capture_output=True, text=True, check=True)
+                        result = subprocess.run(
+                            command, capture_output=True, text=True, check=True)
                         result_column.append(result.stdout.strip())
                     except subprocess.CalledProcessError as e:
                         print("Error:", e)
@@ -232,7 +242,8 @@ class GenericPlugin(EmptyPlugin):
 
         # Get variables by names in columns
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        latent_join_table_response = requests.get(latent_join_table_url, params={"select":"*,variables_variables!fk_latent_variable(*)","or":"("+paramquery+")","variables.order":"variable_order"})
+        latent_join_table_response = requests.get(latent_join_table_url, params={
+                                                  "select": "*,variables_variables!fk_latent_variable(*)", "or": "("+paramquery+")", "variables.order": "variable_order"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         variables = {}
@@ -261,7 +272,8 @@ class GenericPlugin(EmptyPlugin):
 
         # Get all latent variables and path to the file needed for calculation
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        latent_join_table_response = requests.get(latent_join_table_url, params={"or":"("+paramquery+")","formula":"neq.null"})
+        latent_join_table_response = requests.get(latent_join_table_url, params={
+                                                  "or": "("+paramquery+")", "formula": "neq.null"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         return latent_join_json
