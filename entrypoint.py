@@ -111,8 +111,15 @@ class GenericPlugin(EmptyPlugin):
         return data_type_verification or max_answer_verification
 
     def check_file_content(self, url, data):
-        """If the name of the columns in the uploaded csv file are not consisted with
-        the name of variables in metadata manager, file shouldn't be processed.
+        """
+        Validates the content of the uploaded CSV file against the metadata manager:
+        1. Ensures that the column names in the CSV file match the expected variable names in the metadata manager.
+        If there's a mismatch, the file will not be processed further.
+        2. For each column that matches a variable name:
+        - Verifies the data type to ensure it aligns with what's expected (e.g., categorical, ordinal, numeric, boolean, text).
+        - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
+        - Ensures that values are not empty or null. 
+        If any of these checks fail, the file is considered invalid. The validation has a list of errors that will be displayed to the user once the validation is complete.
         """
         import requests
         import json
