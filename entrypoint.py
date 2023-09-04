@@ -29,22 +29,16 @@ class GenericPlugin(EmptyPlugin):
     import pandas as pd
 
     def create_list_of_answer(self, series):
-        answers = series.get("measure_level", "")
-        return answers.split(',')
+        # Assuming that the "measure_level" column is part of the series
+        return series.apply(lambda x: x.split(';') if isinstance(x, str) else [x])
 
     def check_max_answer_allowed(self, series, json_response_df):
-        curr_max_allowed = json_response_df.loc[json_response_df['name']
-                                                == series.name, 'answer_number'].values[0]
+        curr_max_allowed = json_response_df.loc[json_response_df['name'] == series.name, 'answer_number'].values[0]
         curr_max_allowed = int(curr_max_allowed)
         answers_list = self.create_list_of_answer(series)
-        return curr_max_allowed < len(answers_list)
-
-    def is_numeric_value_in_list(self, data, value):
-        for el in data:
-            el_str = str(el)
-            if el_str.isdigit() and str(value).isdigit():
-                if int(value) == int(el_str):
-                    return True
+        for answers in enumerate(answers_list):
+            if len(answers) > curr_max_allowed:
+                return True
         return False
 
     def split_and_clean(self, curr_list_answers, token=r'[,=]'):
@@ -56,9 +50,12 @@ class GenericPlugin(EmptyPlugin):
 
     def check_categorical(self, series, measure_level):
         curr_list_answers_list = self.split_and_clean(measure_level, r'[,=]')
-        for value in series.values:
-            if not self.is_numeric_value_in_list(curr_list_answers_list, value):
-                return True
+        for combined_value in series.values:
+            # Split the combined value based on ';'
+            values = combined_value.split(';')
+            for value in values:
+                if value not in curr_list_answers_list:
+                    return True
         return False
 
     def check_ordinal(self, series, measure_level):
@@ -70,7 +67,10 @@ class GenericPlugin(EmptyPlugin):
 
     def check_numeric(self, series):
         for value in series.values:
-            if not isinstance(value, int):
+            try:
+                float(value)  # Prova a convertire il valore in un numero float
+            except ValueError:
+                # Se si verifica un'eccezione, significa che il valore non può essere convertito in un numero
                 return True
         return False
 
@@ -88,10 +88,8 @@ class GenericPlugin(EmptyPlugin):
         return False
 
     def check_data_type(self, series, json_response_df):
-        curr_data_type = json_response_df.loc[json_response_df['name']
-                                              == series.name, 'data_type'].values[0]
-        curr_list_answers = json_response_df.loc[json_response_df['name']
-                                                 == series.name, 'measure_level']
+        curr_data_type = json_response_df.loc[json_response_df['name'] == series.name, 'data_type'].values[0]
+        curr_list_answers = json_response_df.loc[json_response_df['name'] == series.name, 'measure_level']
         curr_data_type = curr_data_type.lower()
         if curr_data_type == "categorical":
             return self.check_categorical(series, curr_list_answers)
@@ -100,12 +98,17 @@ class GenericPlugin(EmptyPlugin):
         elif curr_data_type == "numeric":
             return self.check_numeric(series)
         elif curr_data_type == "boolean":
-            self.check_boolean(series)
+            return self.check_boolean(series)
         elif curr_data_type == "text":
-            self.check_text(series)
+            return self.check_text(series)
+        else:
+            # Return True (indicating an error) if the data type is not recognized
+            return True
 
     def custom_verification(self, series, json_response_df):
-        return self.check_data_type(series, json_response_df) and self.check_max_answer_allowed(series, json_response_df)
+        data_type_verification = self.check_data_type(series, json_response_df)
+        max_answer_verification = self.check_max_answer_allowed(series, json_response_df)
+        return data_type_verification or max_answer_verification
 
     def check_file_content(self, url, data):
         """If the name of the columns in the uploaded csv file are not consisted with
@@ -118,19 +121,26 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
-
+        
+        errors = []  # List to collect errors
+    
+        
         for column_name, series in data.iteritems():
-            if column_name in json_response_df['name'].values:
-                custom_verification = self.custom_verification(
-                    series, json_response_df[json_response_df['name'] == column_name])
-                if custom_verification is True:
-                    print("File is not valid")
-                    raise ValueError("File is not valid")
+            print("Processing.. " + column_name)
+            if column_name not in json_response_df['name'].values:
+                errors.append(f"File has unrecognised column(s): {column_name}")
             else:
-                raise ValueError(
-                    "File has unrecognised column(s): " + column_name)
-        return False  # File is valid
+                custom_verification = self.custom_verification(series, json_response_df[json_response_df['name'] == column_name])
+                if custom_verification:  # If there's an error
+                    errors.append(f"File is not valid for column: {column_name}")
 
+        if errors:
+            for error in errors:
+                print(error)
+            return True  # File contains errors
+        else:
+            print("File is valid")
+            return False  # File is valid
     def download_script(self, folder_path, file_name):
         """
         Download python file needed to trigger the calculation of the latent variable
