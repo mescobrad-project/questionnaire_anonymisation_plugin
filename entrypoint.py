@@ -1,6 +1,7 @@
+import datetime
+import re
 from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
 from datetime import date
-
 
 class GenericPlugin(EmptyPlugin):
 
@@ -26,8 +27,6 @@ class GenericPlugin(EmptyPlugin):
 
         return age
 
-    import pandas as pd
-
     def create_list_of_answer(self, series):
         # Assuming that the "measure_level" column is part of the series
         return series.apply(lambda x: x.split(';') if isinstance(x, str) else [x])
@@ -47,11 +46,37 @@ class GenericPlugin(EmptyPlugin):
         curr_list_answers_list = list(
             map(str.strip, [item for sublist in curr_list_answers_list for item in sublist]))
         return curr_list_answers_list
+    
+    def check_date(self, series):
+        for value in series.values:
+            try:
+                datetime.date.fromisoformat(value)
+            except ValueError:
+                return True
+        return False
+    
+    def check_time(self, series):
+        for value in series.values:
+            try:
+                datetime.time.fromisoformat(value)
+            except ValueError:
+                return True
+        return False
+    
+    def check_datetime(self, series):
+        for value in series.values:
+            try:
+                datetime.datetime.fromisoformat(value)
+            except ValueError:
+                return True
+        return False      
 
     def check_categorical(self, series, measure_level):
         curr_list_answers_list = self.split_and_clean(measure_level, r'[,=]')
         for combined_value in series.values:
             # Split the combined value based on ';'
+            if not isinstance(combined_value, str):
+                combined_value = str(combined_value)
             values = combined_value.split(';')
             for value in values:
                 if value not in curr_list_answers_list:
@@ -101,6 +126,12 @@ class GenericPlugin(EmptyPlugin):
             return self.check_boolean(series)
         elif curr_data_type == "text":
             return self.check_text(series)
+        elif curr_data_type == "date":
+            return self.check_date(series)
+        elif curr_data_type == "time":
+            return self.check_time(series)
+        elif curr_data_type == "datetime":
+            return self.check_datetime(series)
         else:
             # Return True (indicating an error) if the data type is not recognized
             return True
@@ -128,7 +159,7 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
-        
+                
         errors = []  # List to collect errors
     
         
