@@ -46,100 +46,9 @@ class GenericPlugin(EmptyPlugin):
         curr_list_answers_list = list(
             map(str.strip, [item for sublist in curr_list_answers_list for item in sublist]))
         return curr_list_answers_list
-    
-    def check_date(self, series):
-        for value in series.values:
-            try:
-                datetime.date.fromisoformat(value)
-            except ValueError:
-                return True
-        return False
-    
-    def check_time(self, series):
-        for value in series.values:
-            try:
-                datetime.time.fromisoformat(value)
-            except ValueError:
-                return True
-        return False
-    
-    def check_datetime(self, series):
-        for value in series.values:
-            try:
-                datetime.datetime.fromisoformat(value)
-            except ValueError:
-                return True
-        return False      
 
-    def check_categorical(self, series, measure_level):
-        curr_list_answers_list = self.split_and_clean(measure_level, r'[,=]')
-        for combined_value in series.values:
-            # Split the combined value based on ';'
-            if not isinstance(combined_value, str):
-                combined_value = str(combined_value)
-            values = combined_value.split(';')
-            for value in values:
-                if value not in curr_list_answers_list:
-                    return True
-        return False
-
-    def check_ordinal(self, series, measure_level):
-        curr_list_answers_list = self.split_and_clean(measure_level, r'[,]')
-        for value in series.values:
-            if value not in curr_list_answers_list:
-                return True
-        return False
-
-    def check_numeric(self, series):
-        for value in series.values:
-            try:
-                float(value)  # Prova a convertire il valore in un numero float
-            except ValueError:
-                # Se si verifica un'eccezione, significa che il valore non può essere convertito in un numero
-                return True
-        return False
-
-    def check_boolean(self, series):
-        accepted_boolean_values = ["Yes", "Y", "No", "N"]
-        for value in series.values:
-            if value not in accepted_boolean_values:
-                return True
-        return False
-
-    def check_text(self, series):
-        for value in series.values:
-            if not isinstance(value, str):
-                return True
-        return False
-
-    def check_data_type(self, series, json_response_df):
-        curr_data_type = json_response_df.loc[json_response_df['name'] == series.name, 'data_type'].values[0]
-        curr_list_answers = json_response_df.loc[json_response_df['name'] == series.name, 'measure_level']
-        curr_data_type = curr_data_type.lower()
-        if curr_data_type == "categorical":
-            return self.check_categorical(series, curr_list_answers)
-        elif curr_data_type == "ordinal":
-            return self.check_ordinal(series, curr_list_answers)
-        elif curr_data_type == "numeric":
-            return self.check_numeric(series)
-        elif curr_data_type == "boolean":
-            return self.check_boolean(series)
-        elif curr_data_type == "text":
-            return self.check_text(series)
-        elif curr_data_type == "date":
-            return self.check_date(series)
-        elif curr_data_type == "time":
-            return self.check_time(series)
-        elif curr_data_type == "datetime":
-            return self.check_datetime(series)
-        else:
-            # Return True (indicating an error) if the data type is not recognized
-            return True
-
-    def custom_verification(self, series, json_response_df):
-        data_type_verification = self.check_data_type(series, json_response_df)
-        max_answer_verification = self.check_max_answer_allowed(series, json_response_df)
-        return data_type_verification or max_answer_verification
+    def validate_uploaded_data(self, series, json_response_df):
+        return self.check_max_answer_allowed(series, json_response_df)
 
     def check_file_content(self, url, data):
         """
@@ -168,7 +77,7 @@ class GenericPlugin(EmptyPlugin):
             if column_name not in json_response_df['name'].values:
                 errors.append(f"File has unrecognised column(s): {column_name}")
             else:
-                custom_verification = self.custom_verification(series, json_response_df[json_response_df['name'] == column_name])
+                custom_verification = self.validate_uploaded_data(series, json_response_df[json_response_df['name'] == column_name])
                 if custom_verification:  # If there's an error
                     errors.append(f"File is not valid for column: {column_name}")
 
