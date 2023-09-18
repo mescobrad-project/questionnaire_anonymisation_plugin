@@ -40,7 +40,7 @@ class GenericPlugin(EmptyPlugin):
                 return True
         return False
 
-    def split_and_clean(self, curr_list_answers, token=r'[,=]'):
+    def split_and_strip_answers(self, curr_list_answers, token=r'[,=]'):
         curr_list_answers_list = list(
             curr_list_answers.str.split(token).values)
         curr_list_answers_list = list(
