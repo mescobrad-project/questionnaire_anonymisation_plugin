@@ -208,14 +208,22 @@ class GenericPlugin(EmptyPlugin):
         for elem in latent_join_json:
             variable_name = elem['name']
             latent_variable_list = elem['variables_variables']
-
             for element in latent_variable_list:
                 latent_variable_id = element['latent_variable_id']
                 if latent_variable_id not in variables:
                     variables[latent_variable_id] = []
                 variables[latent_variable_id].append(variable_name)
 
-        return variables
+        # Check if all the variables are present in csv in order to calculate corresponding
+        # latent variable
+        final_variables = {}
+        for elem in variables:
+            latent_var_request = requests.get("https://api-metadata.mescobrad.digital-enabler.eng.it/variables_variables",
+                                        params = {'latent_variable_id': "eq."+elem})
+            latent_var_list = json.loads(latent_var_request.text)
+            if len(latent_var_list) == len(variables[elem]):
+                final_variables[elem] = variables[elem]
+        return final_variables
 
     def get_latent_variables_info(self, latent_variables):
 
