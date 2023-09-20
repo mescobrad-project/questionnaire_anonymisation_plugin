@@ -300,7 +300,8 @@ class GenericPlugin(EmptyPlugin):
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
                                 "csv_data/"+file_name).delete()
-
+                                
+            data = self.calculate_latent_variables(data.columns, data)
             columns_to_remove = [
                 column for column in data.columns if column in columns_with_personal_data]
 
