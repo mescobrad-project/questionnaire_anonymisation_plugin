@@ -148,13 +148,14 @@ class GenericPlugin(EmptyPlugin):
 
             latent_to_variables_mapping = {}
             # Map variables to format -> latent_variable_calculation_file_name : list of variables needed for calculation
+
             for elem in latent_variables_to_calculate:
-                variables = variables[elem['variable_id']]
+                variables_of_latent = variables[elem['variable_id']]
                 key = os.path.basename(elem['formula'])
                 if key not in latent_to_variables_mapping:
-                    latent_to_variables_mapping[key] = variables
-                else:
-                    latent_to_variables_mapping[key].append(variables)
+                    latent_to_variables_mapping[key] = variables_of_latent
+                else :
+                    latent_to_variables_mapping[key].append(variables_of_latent)
 
             # Path to download script to calculate corresponding latent variable
             folder_script_path = "mescobrad_edge/plugins/questionnaire_anonymisation_plugin/latent_calc/"
@@ -165,7 +166,7 @@ class GenericPlugin(EmptyPlugin):
             # Final result add to the dataframe
 
             for lvar in latent_variables_to_calculate:
-                key = os.path.basename(elem['formula'])
+                key = os.path.basename(lvar['formula'])
                 self.download_script(folder_script_path, lvar['formula'])
                 result_column = []
                 for index, row in data.iterrows():
