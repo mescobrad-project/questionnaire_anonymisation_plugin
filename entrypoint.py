@@ -34,8 +34,10 @@ class GenericPlugin(EmptyPlugin):
     def check_max_answer_allowed(self, series, json_response_df):
         curr_max_allowed = json_response_df.loc[json_response_df['name'] == series.name, 'answer_number'].values[0]
         curr_max_allowed = int(curr_max_allowed)
+        if curr_max_allowed == 0:
+            return False
         answers_list = self.create_list_of_answer(series)
-        for answers in enumerate(answers_list):
+        for answers in answers_list:
             if len(answers) > curr_max_allowed:
                 return True
         return False
@@ -56,9 +58,7 @@ class GenericPlugin(EmptyPlugin):
         1. Ensures that the column names in the CSV file match the expected variable names in the metadata manager.
         If there's a mismatch, the file will not be processed further.
         2. For each column that matches a variable name:
-        - Verifies the data type to ensure it aligns with what's expected (e.g., categorical, ordinal, numeric, boolean, text).
         - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
-        - Ensures that values are not empty or null. 
         If any of these checks fail, the file is considered invalid. The validation has a list of errors that will be displayed to the user once the validation is complete.
         """
         import requests
