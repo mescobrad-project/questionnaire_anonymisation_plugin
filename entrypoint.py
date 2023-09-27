@@ -42,13 +42,6 @@ class GenericPlugin(EmptyPlugin):
                 return True
         return False
 
-    def split_and_strip_answers(self, curr_list_answers, token=r'[,=]'):
-        curr_list_answers_list = list(
-            curr_list_answers.str.split(token).values)
-        curr_list_answers_list = list(
-            map(str.strip, [item for sublist in curr_list_answers_list for item in sublist]))
-        return curr_list_answers_list
-
     def validate_uploaded_data(self, series, json_response_df):
         return self.check_max_answer_allowed(series, json_response_df)
 
