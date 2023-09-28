@@ -1,3 +1,5 @@
+import datetime
+import re
 from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
 from datetime import date
 
@@ -8,7 +10,8 @@ class GenericPlugin(EmptyPlugin):
         today = date.today()
 
         # A bool that represents if today's day/month precedes the birth day/month
-        one_or_zero = ((today.month, today.day) < (birthdate.month, birthdate.day))
+        one_or_zero = ((today.month, today.day) <
+                       (birthdate.month, birthdate.day))
 
         # Calculate the difference in years from the date object's components
         year_difference = today.year - birthdate.year
@@ -24,23 +27,60 @@ class GenericPlugin(EmptyPlugin):
 
         return age
 
-    def check_file_content(self, url, columns):
-        """If the name of the columns in the uploaded csv file are not consisted with
-        the name of variables in metadata manager, file shouldn't be processed.
+    def create_list_of_answer(self, series):
+        # Assuming that the "measure_level" column is part of the series
+        return series.apply(lambda x: x.split(';') if isinstance(x, str) else [x])
+
+    def check_max_answer_allowed(self, series, json_response_df):
+        curr_max_allowed = json_response_df.loc[json_response_df['name'] == series.name, 'answer_number'].values[0]
+        curr_max_allowed = int(curr_max_allowed)
+        if curr_max_allowed == 0:
+            return False
+        answers_list = self.create_list_of_answer(series)
+        for answers in answers_list:
+            if len(answers) > curr_max_allowed:
+                return True
+        return False
+
+    def validate_uploaded_data(self, series, json_response_df):
+        return self.check_max_answer_allowed(series, json_response_df)
+
+    def check_file_content(self, url, data):
+        """
+        Validates the content of the uploaded CSV file against the metadata manager:
+        1. Ensures that the column names in the CSV file match the expected variable names in the metadata manager.
+        If there's a mismatch, the file will not be processed further.
+        2. For each column that matches a variable name:
+        - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
+        If any of these checks fail, the file is considered invalid. The validation has a list of errors that will be displayed to the user once the validation is complete.
         """
         import requests
         import json
+        import pandas as pd
 
         response = requests.get(url)
         json_response = json.loads(response.text)
-        metadata_variables = [elem['name'] for elem in json_response]
+        json_response_df = pd.DataFrame(json_response)
+                
+        errors = []  # List to collect errors
+    
+        
+        for column_name, series in data.iteritems():
+            print("Processing.. " + column_name)
+            if column_name not in json_response_df['name'].values:
+                errors.append(f"File has unrecognised column(s): {column_name}")
+            else:
+                custom_verification = self.validate_uploaded_data(series, json_response_df[json_response_df['name'] == column_name])
+                if custom_verification:  # If there's an error
+                    errors.append(f"File is not valid for column: {column_name}")
 
-        for column in columns:
-            if column not in metadata_variables:
-                return True
-
-        return False
-
+        if errors:
+            for error in errors:
+                print(error)
+            return True  # File contains errors
+        else:
+            print("File is valid")
+            return False  # File is valid
     def download_script(self, folder_path, file_name):
         """
         Download python file needed to trigger the calculation of the latent variable
@@ -51,21 +91,25 @@ class GenericPlugin(EmptyPlugin):
         from botocore.config import Config
 
         s3 = boto3.resource('s3',
-                    endpoint_url= self.__OBJ_STORAGE_URL__,
-                    aws_access_key_id= self.__OBJ_STORAGE_ACCESS_ID__,
-                    aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET__,
-                    config=Config(signature_version='s3v4'),
-                    region_name=self.__OBJ_STORAGE_REGION__)
+                            endpoint_url=self.__OBJ_STORAGE_URL__,
+                            aws_access_key_id=self.__OBJ_STORAGE_ACCESS_ID__,
+                            aws_secret_access_key=self.__OBJ_STORAGE_ACCESS_SECRET__,
+                            config=Config(signature_version='s3v4'),
+                            region_name=self.__OBJ_STORAGE_REGION__)
 
-        path_to_file = file_name.split("s3a://" + self.__OBJ_STORAGE_BUCKET__ + "/")[1]
-        path_to_download = os.path.join(folder_path, os.path.basename(file_name))
+        path_to_file = file_name.split(
+            "s3a://" + self.__OBJ_STORAGE_BUCKET__ + "/")[1]
+        path_to_download = os.path.join(
+            folder_path, os.path.basename(file_name))
 
         # Download script with defintion of latent variables calculation
         try:
-          s3.Bucket(self.__OBJ_STORAGE_BUCKET__).download_file(path_to_file, path_to_download)
-          print(f"File '{path_to_file}' downloaded successfully to '{path_to_download}'.")
+            s3.Bucket(self.__OBJ_STORAGE_BUCKET__).download_file(
+                path_to_file, path_to_download)
+            print(
+                f"File '{path_to_file}' downloaded successfully to '{path_to_download}'.")
         except Exception as e:
-          print(f"Error downloading file: {e}")
+            print(f"Error downloading file: {e}")
 
     def create_command(self, key, row, variables):
         """
@@ -92,7 +136,8 @@ class GenericPlugin(EmptyPlugin):
 
         if variables:
             # Get all latent variables according to fetched variables
-            latent_variables_to_calculate = self.get_latent_variables_info(variables)
+            latent_variables_to_calculate = self.get_latent_variables_info(
+                variables)
 
             latent_to_variables_mapping = {}
             # Map variables to format -> latent_variable_calculation_file_name : list of variables needed for calculation
@@ -119,10 +164,12 @@ class GenericPlugin(EmptyPlugin):
                 result_column = []
                 for index, row in data.iterrows():
                     # Create the correct subprocess call
-                    command = self.create_command(folder_script_path+key, row, latent_to_variables_mapping[key])
+                    command = self.create_command(
+                        folder_script_path+key, row, latent_to_variables_mapping[key])
                     # Execute the calculation of the corresponding latent variable
                     try:
-                        result = subprocess.run(command, capture_output=True, text=True, check=True)
+                        result = subprocess.run(
+                            command, capture_output=True, text=True, check=True)
                         result_column.append(result.stdout.strip())
                     except subprocess.CalledProcessError as e:
                         print("Error:", e)
@@ -146,7 +193,8 @@ class GenericPlugin(EmptyPlugin):
 
         # Get variables by names in columns
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        latent_join_table_response = requests.get(latent_join_table_url, params={"select":"*,variables_variables!fk_latent_variable(*)","or":"("+paramquery+")","variables.order":"variable_order"})
+        latent_join_table_response = requests.get(latent_join_table_url, params={
+                                                  "select": "*,variables_variables!fk_latent_variable(*)", "or": "("+paramquery+")", "variables.order": "variable_order"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         variables = {}
@@ -183,7 +231,8 @@ class GenericPlugin(EmptyPlugin):
 
         # Get all latent variables and path to the file needed for calculation
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        latent_join_table_response = requests.get(latent_join_table_url, params={"or":"("+paramquery+")","formula":"neq.null"})
+        latent_join_table_response = requests.get(latent_join_table_url, params={
+                                                  "or": "("+paramquery+")", "formula": "neq.null"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         return latent_join_json
@@ -199,9 +248,9 @@ class GenericPlugin(EmptyPlugin):
 
         # Init client
         s3_local = boto3.resource('s3',
-                                  endpoint_url= self.__OBJ_STORAGE_URL_LOCAL__,
-                                  aws_access_key_id= self.__OBJ_STORAGE_ACCESS_ID_LOCAL__,
-                                  aws_secret_access_key= self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
+                                  endpoint_url=self.__OBJ_STORAGE_URL_LOCAL__,
+                                  aws_access_key_id=self.__OBJ_STORAGE_ACCESS_ID_LOCAL__,
+                                  aws_secret_access_key=self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
                                   config=Config(signature_version='s3v4'),
                                   region_name=self.__OBJ_STORAGE_REGION__)
 
@@ -215,7 +264,7 @@ class GenericPlugin(EmptyPlugin):
 
         # Get the list of variables indicating columns that needs to be removed
         url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
-        response = requests.get(url, params = {'personaldata': "eq.True"})
+        response = requests.get(url, params={'personaldata': "eq.True"})
         json_response = json.loads(response.text)
         columns_with_personal_data = [elem['name'] for elem in json_response]
 
@@ -225,9 +274,10 @@ class GenericPlugin(EmptyPlugin):
             columns_to_remove = []
             data = pd.read_csv(file_path_template.format(filename=file_name))
 
-            if self.check_file_content(url, data.columns):
+            if self.check_file_content(url, data):
                 # If file is not valid delete file
-                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "csv_data/"+file_name).delete()
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
+                                "csv_data/"+file_name).delete()
                 os.remove(file_path_template.format(filename=file_name))
                 continue
             else:
@@ -241,18 +291,22 @@ class GenericPlugin(EmptyPlugin):
                 os.remove(file_path_template.format(filename=file_name))
 
                 # Remove csv from the bucket
-                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__, "csv_data/"+file_name).delete()
-
+                s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
+                                "csv_data/"+file_name).delete()
+                                
             data = self.calculate_latent_variables(data.columns, data)
-            columns_to_remove = [column for column in data.columns if column in columns_with_personal_data]
+            columns_to_remove = [
+                column for column in data.columns if column in columns_with_personal_data]
 
             if "date_of_birth" in data.columns:
-                data["date_of_birth"] = pd.to_datetime(data["date_of_birth"], dayfirst=True)
+                data["date_of_birth"] = pd.to_datetime(
+                    data["date_of_birth"], dayfirst=True)
 
             # Generate list of unique ids
             personal_data = data.loc[:, columns_to_remove]
             if "date_of_birth" in personal_data.columns:
-                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime("%d-%m-%Y")
+                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
+                    "%d-%m-%Y")
             list_id = []
 
             for i in range(data.shape[0]):
@@ -261,10 +315,11 @@ class GenericPlugin(EmptyPlugin):
                 list_id.append(id)
 
             data.insert(0, "PID", list_id)
-            data.to_parquet(file_path_template.format(filename=file_name_parquet), index=False)
+            data.to_parquet(file_path_template.format(
+                filename=file_name_parquet), index=False)
 
             if 'date_of_birth' in personal_data.columns:
-               data['age'] = data["date_of_birth"].apply(self.age)
+                data['age'] = data["date_of_birth"].apply(self.age)
 
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
