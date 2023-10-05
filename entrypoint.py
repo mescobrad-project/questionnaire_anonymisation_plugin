@@ -236,6 +236,14 @@ class GenericPlugin(EmptyPlugin):
         latent_join_json = json.loads(latent_join_table_response.text)
 
         return latent_join_json
+    
+    def check_required_variables(self, columns, required_variables):
+                
+        for var in required_variables:
+            if var not in columns:
+                return False
+                  
+        return True
 
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
         import os
@@ -267,7 +275,7 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url, params={'personaldata': "eq.True"})
         json_response = json.loads(response.text)
         columns_with_personal_data = [elem['name'] for elem in json_response]
-
+        required_variables = ["first_name", "last_name", "birth_date", "unique_id"]
         final_files_to_anonymize = []
         # load input data
         for file_name in files_to_anonymize:
@@ -295,6 +303,7 @@ class GenericPlugin(EmptyPlugin):
                                 "csv_data/"+file_name).delete()
                                 
             data = self.calculate_latent_variables(data.columns, data)
+            columnsValid = self.check_required_variables(data.columns, required_variables)             
             columns_to_remove = [
                 column for column in data.columns if column in columns_with_personal_data]
 
@@ -308,11 +317,15 @@ class GenericPlugin(EmptyPlugin):
                 personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
                     "%d-%m-%Y")
             list_id = []
-
-            for i in range(data.shape[0]):
-                personal_id = "".join(personal_data.iloc[i].astype(str))
-                id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
-                list_id.append(id)
+            
+            if columnsValid:
+              personal_data_columns = data.loc[:, required_variables]
+              for i in range(data.shape[0]):
+                  personal_id = "".join(personal_data_columns.iloc[i].astype(str))
+                  id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
+                  list_id.append(id)
+            else:
+              print("Missing required variables for the creation of Universal Patient ID")
 
             data.insert(0, "PID", list_id)
             data.to_parquet(file_path_template.format(
