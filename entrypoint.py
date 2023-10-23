@@ -152,6 +152,7 @@ class GenericPlugin(EmptyPlugin):
         - Verifies the data type to ensure it aligns with what's expected (e.g., categorical, ordinal, numeric, boolean, text).
         - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
         - Ensures that values are not empty or null. 
+        - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
         If any of these checks fail, the file is considered invalid. The validation has a list of errors that will be displayed to the user once the validation is complete.
         """
         import requests
@@ -241,13 +242,14 @@ class GenericPlugin(EmptyPlugin):
 
             latent_to_variables_mapping = {}
             # Map variables to format -> latent_variable_calculation_file_name : list of variables needed for calculation
+
             for elem in latent_variables_to_calculate:
-                variables = variables[elem['variable_id']]
+                variables_of_latent = variables[elem['variable_id']]
                 key = os.path.basename(elem['formula'])
                 if key not in latent_to_variables_mapping:
-                    latent_to_variables_mapping[key] = variables
-                else:
-                    latent_to_variables_mapping[key].append(variables)
+                    latent_to_variables_mapping[key] = variables_of_latent
+                else :
+                    latent_to_variables_mapping[key].append(variables_of_latent)
 
             # Path to download script to calculate corresponding latent variable
             folder_script_path = "mescobrad_edge/plugins/questionnaire_anonymisation_plugin/latent_calc/"
@@ -258,7 +260,7 @@ class GenericPlugin(EmptyPlugin):
             # Final result add to the dataframe
 
             for lvar in latent_variables_to_calculate:
-                key = os.path.basename(elem['formula'])
+                key = os.path.basename(lvar['formula'])
                 self.download_script(folder_script_path, lvar['formula'])
                 result_column = []
                 for index, row in data.iterrows():
@@ -301,14 +303,22 @@ class GenericPlugin(EmptyPlugin):
         for elem in latent_join_json:
             variable_name = elem['name']
             latent_variable_list = elem['variables_variables']
-
             for element in latent_variable_list:
                 latent_variable_id = element['latent_variable_id']
                 if latent_variable_id not in variables:
                     variables[latent_variable_id] = []
                 variables[latent_variable_id].append(variable_name)
 
-        return variables
+        # Check if all the variables are present in csv in order to calculate corresponding
+        # latent variable
+        final_variables = {}
+        for elem in variables:
+            latent_var_request = requests.get("https://api-metadata.mescobrad.digital-enabler.eng.it/variables_variables",
+                                        params = {'latent_variable_id': "eq."+elem})
+            latent_var_list = json.loads(latent_var_request.text)
+            if len(latent_var_list) == len(variables[elem]):
+                final_variables[elem] = variables[elem]
+        return final_variables
 
     def get_latent_variables_info(self, latent_variables):
 
@@ -384,7 +394,8 @@ class GenericPlugin(EmptyPlugin):
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
                                 "csv_data/"+file_name).delete()
-
+                                
+            data = self.calculate_latent_variables(data.columns, data)
             columns_to_remove = [
                 column for column in data.columns if column in columns_with_personal_data]
 
