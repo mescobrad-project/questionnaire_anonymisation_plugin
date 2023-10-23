@@ -34,12 +34,19 @@ class GenericPlugin(EmptyPlugin):
     def check_max_answer_allowed(self, series, json_response_df):
         curr_max_allowed = json_response_df.loc[json_response_df['name'] == series.name, 'answer_number'].values[0]
         curr_max_allowed = int(curr_max_allowed)
+        if curr_max_allowed == 0:
+            return False
         answers_list = self.create_list_of_answer(series)
-        for answers in enumerate(answers_list):
+        for answers in answers_list:
             if len(answers) > curr_max_allowed:
                 return True
         return False
-
+    
+    def validate_uploaded_data(self, series, json_response_df):
+        data_type_verification = self.check_data_type(series, json_response_df)
+        max_answer_verification = self.check_max_answer_allowed(series, json_response_df)
+        return data_type_verification or max_answer_verification
+    
     def split_and_clean(self, curr_list_answers, token=r'[,=]'):
         curr_list_answers_list = list(
             curr_list_answers.str.split(token).values)
@@ -136,11 +143,6 @@ class GenericPlugin(EmptyPlugin):
             # Return True (indicating an error) if the data type is not recognized
             return True
 
-    def custom_verification(self, series, json_response_df):
-        data_type_verification = self.check_data_type(series, json_response_df)
-        max_answer_verification = self.check_max_answer_allowed(series, json_response_df)
-        return data_type_verification or max_answer_verification
-
     def check_file_content(self, url, data):
         """
         Validates the content of the uploaded CSV file against the metadata manager:
@@ -159,16 +161,16 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
-                
+
         errors = []  # List to collect errors
-    
-        
+
+
         for column_name, series in data.iteritems():
             print("Processing.. " + column_name)
             if column_name not in json_response_df['name'].values:
                 errors.append(f"File has unrecognised column(s): {column_name}")
             else:
-                custom_verification = self.custom_verification(series, json_response_df[json_response_df['name'] == column_name])
+                custom_verification = self.validate_uploaded_data(series, json_response_df[json_response_df['name'] == column_name])
                 if custom_verification:  # If there's an error
                     errors.append(f"File is not valid for column: {column_name}")
 
