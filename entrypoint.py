@@ -61,10 +61,10 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
-                
+
         errors = []  # List to collect errors
-    
-        
+
+
         for column_name, series in data.iteritems():
             print("Processing.. " + column_name)
             if column_name not in json_response_df['name'].values:
@@ -236,13 +236,13 @@ class GenericPlugin(EmptyPlugin):
         latent_join_json = json.loads(latent_join_table_response.text)
 
         return latent_join_json
-    
+
     def check_required_variables(self, columns, required_variables):
-                
+
         for var in required_variables:
             if var not in columns:
                 return False
-                  
+
         return True
 
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
@@ -301,23 +301,23 @@ class GenericPlugin(EmptyPlugin):
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
                                 "csv_data/"+file_name).delete()
-                                
+
             data = self.calculate_latent_variables(data.columns, data)
-            columnsValid = self.check_required_variables(data.columns, required_variables)             
+            columnsValid = self.check_required_variables(data.columns, required_variables)
             columns_to_remove = [
                 column for column in data.columns if column in columns_with_personal_data]
 
-            if "date_of_birth" in data.columns:
-                data["date_of_birth"] = pd.to_datetime(
-                    data["date_of_birth"], dayfirst=True)
+            if "birth_date" in data.columns:
+                data["birth_date"] = pd.to_datetime(
+                    data["birth_date"], dayfirst=True)
 
             # Generate list of unique ids
             personal_data = data.loc[:, columns_to_remove]
-            if "date_of_birth" in personal_data.columns:
-                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
+            if "birth_date" in personal_data.columns:
+                personal_data['birth_date'] = personal_data['birth_date'].dt.strftime(
                     "%d-%m-%Y")
             list_id = []
-            
+
             if columnsValid:
               personal_data_columns = data.loc[:, required_variables]
               for i in range(data.shape[0]):
@@ -331,8 +331,8 @@ class GenericPlugin(EmptyPlugin):
             data.to_parquet(file_path_template.format(
                 filename=file_name_parquet), index=False)
 
-            if 'date_of_birth' in personal_data.columns:
-                data['age'] = data["date_of_birth"].apply(self.age)
+            if 'birth_date' in personal_data.columns:
+                data['age'] = data["birth_date"].apply(self.age)
 
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
