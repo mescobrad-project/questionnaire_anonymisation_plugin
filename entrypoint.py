@@ -61,10 +61,10 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
-                
+
         errors = []  # List to collect errors
-    
-        
+
+
         for column_name, series in data.iteritems():
             print("Processing.. " + column_name)
             if column_name not in json_response_df['name'].values:
@@ -81,6 +81,7 @@ class GenericPlugin(EmptyPlugin):
         else:
             print("File is valid")
             return False  # File is valid
+
     def download_script(self, folder_path, file_name):
         """
         Download python file needed to trigger the calculation of the latent variable
@@ -237,6 +238,14 @@ class GenericPlugin(EmptyPlugin):
 
         return latent_join_json
 
+    def check_required_variables(self, columns, required_variables):
+
+        for var in required_variables:
+            if var not in columns:
+                return False
+
+        return True
+
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
         import os
         import pandas as pd
@@ -267,7 +276,7 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url, params={'personaldata': "eq.True"})
         json_response = json.loads(response.text)
         columns_with_personal_data = [elem['name'] for elem in json_response]
-
+        required_variables = ["first_name", "last_name", "birth_date", "unique_id"]
         final_files_to_anonymize = []
         # load input data
         for file_name in files_to_anonymize:
@@ -293,33 +302,37 @@ class GenericPlugin(EmptyPlugin):
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
                                 "csv_data/"+file_name).delete()
-                                
+
             data = self.calculate_latent_variables(data.columns, data)
+            columnsValid = self.check_required_variables(data.columns, required_variables)
             columns_to_remove = [
                 column for column in data.columns if column in columns_with_personal_data]
 
-            if "date_of_birth" in data.columns:
-                data["date_of_birth"] = pd.to_datetime(
-                    data["date_of_birth"], dayfirst=True)
+            if "birth_date" in data.columns:
+                data["birth_date"] = pd.to_datetime(data["birth_date"], dayfirst=True)
+
+                # Calculate age based on birthdate
+                data['age'] = data["birth_date"].apply(self.age)
+
+                # Extract date from datetime
+                data['birth_date'] = data['birth_date'].dt.strftime("%d-%m-%Y")
+
 
             # Generate list of unique ids
-            personal_data = data.loc[:, columns_to_remove]
-            if "date_of_birth" in personal_data.columns:
-                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
-                    "%d-%m-%Y")
             list_id = []
 
-            for i in range(data.shape[0]):
-                personal_id = "".join(personal_data.iloc[i].astype(str))
-                id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
-                list_id.append(id)
+            if columnsValid:
+                personal_data_columns = data.loc[:, required_variables]
+                for i in range(data.shape[0]):
+                    personal_id = "".join(personal_data_columns.iloc[i].astype(str))
+                    id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
+                    list_id.append(id)
+            else:
+                print("Missing required variables for the creation of Universal Patient ID")
 
             data.insert(0, "PID", list_id)
             data.to_parquet(file_path_template.format(
                 filename=file_name_parquet), index=False)
-
-            if 'date_of_birth' in personal_data.columns:
-                data['age'] = data["date_of_birth"].apply(self.age)
 
             # remove columns with personal information from the CSV files
             data.drop(columns=columns_to_remove, inplace=True)
