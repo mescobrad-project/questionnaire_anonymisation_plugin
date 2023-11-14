@@ -276,7 +276,8 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url, params={'personaldata': "eq.True"})
         json_response = json.loads(response.text)
         columns_with_personal_data = [elem['name'] for elem in json_response]
-        required_variables = ["first_name", "last_name", "birth_date", "unique_id"]
+        required_variables = ["first_name", "last_name", "birth_date", "unique_id",
+                              "observation_datetime"]
         final_files_to_anonymize = []
         # load input data
         for file_name in files_to_anonymize:
@@ -322,7 +323,7 @@ class GenericPlugin(EmptyPlugin):
             list_id = []
 
             if columnsValid:
-                personal_data_columns = data.loc[:, required_variables]
+                personal_data_columns = data.loc[:, required_variables[:4]]
                 for i in range(data.shape[0]):
                     personal_id = "".join(personal_data_columns.iloc[i].astype(str))
                     id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
