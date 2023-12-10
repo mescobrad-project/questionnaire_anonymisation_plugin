@@ -61,10 +61,9 @@ class GenericPlugin(EmptyPlugin):
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
-                
+
         errors = []  # List to collect errors
-    
-        
+
         for column_name, series in data.iteritems():
             print("Processing.. " + column_name)
             if column_name not in json_response_df['name'].values:
@@ -293,7 +292,7 @@ class GenericPlugin(EmptyPlugin):
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
                                 "csv_data/"+file_name).delete()
-                                
+
             data = self.calculate_latent_variables(data.columns, data)
             columns_to_remove = [
                 column for column in data.columns if column in columns_with_personal_data]
@@ -327,4 +326,4 @@ class GenericPlugin(EmptyPlugin):
             data.to_parquet(file_path, index=False)
 
         # return anonymized data
-        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize)
+        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize, input_meta.workspace_id)
