@@ -1,7 +1,23 @@
 import datetime
 import re
-from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
+from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, \
+    PluginExchangeMetadata
 from datetime import date
+from enum import Enum
+
+
+class DataTypes(Enum):
+    INTEGER = "1"
+    DECIMAL = "2"
+    STRING = "3"
+    DATETIME = "4"
+    BINARY = "5"
+    BOOLEAN = "6"
+    CATEGORICAL = "7"
+    ORDINAL = "8"
+    DATE = "9"
+    TIME = "10"
+
 
 class GenericPlugin(EmptyPlugin):
 
@@ -41,19 +57,19 @@ class GenericPlugin(EmptyPlugin):
             if len(answers) > curr_max_allowed:
                 return True
         return False
-    
+
     def validate_uploaded_data(self, series, json_response_df):
         data_type_verification = self.check_data_type(series, json_response_df)
         max_answer_verification = self.check_max_answer_allowed(series, json_response_df)
         return data_type_verification or max_answer_verification
-    
+
     def split_and_clean(self, curr_list_answers, token=r'[,=]'):
         curr_list_answers_list = list(
             curr_list_answers.str.split(token).values)
         curr_list_answers_list = list(
             map(str.strip, [item for sublist in curr_list_answers_list for item in sublist]))
         return curr_list_answers_list
-    
+
     def check_date(self, series):
         for value in series.values:
             try:
@@ -61,7 +77,7 @@ class GenericPlugin(EmptyPlugin):
             except ValueError:
                 return True
         return False
-    
+
     def check_time(self, series):
         for value in series.values:
             try:
@@ -69,14 +85,14 @@ class GenericPlugin(EmptyPlugin):
             except ValueError:
                 return True
         return False
-    
+
     def check_datetime(self, series):
         for value in series.values:
             try:
                 datetime.datetime.fromisoformat(value)
             except ValueError:
                 return True
-        return False      
+        return False
 
     def check_categorical(self, series, measure_level):
         curr_list_answers_list = self.split_and_clean(measure_level, r'[,=]')
@@ -123,21 +139,21 @@ class GenericPlugin(EmptyPlugin):
         curr_data_type = json_response_df.loc[json_response_df['name'] == series.name, 'data_type'].values[0]
         curr_list_answers = json_response_df.loc[json_response_df['name'] == series.name, 'measure_level']
         curr_data_type = curr_data_type.lower()
-        if curr_data_type == "categorical":
+        if curr_data_type == DataTypes.CATEGORICAL.value:
             return self.check_categorical(series, curr_list_answers)
-        elif curr_data_type == "ordinal":
+        elif curr_data_type == DataTypes.ORDINAL.value:
             return self.check_ordinal(series, curr_list_answers)
-        elif curr_data_type == "numeric":
+        elif curr_data_type == DataTypes.INTEGER.value or curr_data_type == DataTypes.DECIMAL.value:
             return self.check_numeric(series)
-        elif curr_data_type == "boolean":
+        elif curr_data_type == DataTypes.BOOLEAN.value:
             return self.check_boolean(series)
-        elif curr_data_type == "text":
+        elif curr_data_type == DataTypes.STRING.value:
             return self.check_text(series)
-        elif curr_data_type == "date":
+        elif curr_data_type == DataTypes.DATE.value:
             return self.check_date(series)
-        elif curr_data_type == "time":
+        elif curr_data_type == DataTypes.TIME.value:
             return self.check_time(series)
-        elif curr_data_type == "datetime":
+        elif curr_data_type == DataTypes.DATETIME.value:
             return self.check_datetime(series)
         else:
             # Return True (indicating an error) if the data type is not recognized
@@ -165,13 +181,13 @@ class GenericPlugin(EmptyPlugin):
 
         errors = []  # List to collect errors
 
-
         for column_name, series in data.iteritems():
             print("Processing.. " + column_name)
             if column_name not in json_response_df['name'].values:
                 errors.append(f"File has unrecognised column(s): {column_name}")
             else:
-                custom_verification = self.validate_uploaded_data(series, json_response_df[json_response_df['name'] == column_name])
+                custom_verification = self.validate_uploaded_data(series, json_response_df[
+                    json_response_df['name'] == column_name])
                 if custom_verification:  # If there's an error
                     errors.append(f"File is not valid for column: {column_name}")
 
@@ -182,6 +198,7 @@ class GenericPlugin(EmptyPlugin):
         else:
             print("File is valid")
             return False  # File is valid
+
     def download_script(self, folder_path, file_name):
         """
         Download python file needed to trigger the calculation of the latent variable
@@ -220,7 +237,7 @@ class GenericPlugin(EmptyPlugin):
 
         create_command = ["python", key]
         for var in variables:
-            create_command.extend(["--"+var, str(row[var])])
+            create_command.extend(["--" + var, str(row[var])])
         return create_command
 
     def calculate_latent_variables(self, columns, data):
@@ -248,7 +265,7 @@ class GenericPlugin(EmptyPlugin):
                 key = os.path.basename(elem['formula'])
                 if key not in latent_to_variables_mapping:
                     latent_to_variables_mapping[key] = variables_of_latent
-                else :
+                else:
                     latent_to_variables_mapping[key].append(variables_of_latent)
 
             # Path to download script to calculate corresponding latent variable
@@ -266,7 +283,7 @@ class GenericPlugin(EmptyPlugin):
                 for index, row in data.iterrows():
                     # Create the correct subprocess call
                     command = self.create_command(
-                        folder_script_path+key, row, latent_to_variables_mapping[key])
+                        folder_script_path + key, row, latent_to_variables_mapping[key])
                     # Execute the calculation of the corresponding latent variable
                     try:
                         result = subprocess.run(
@@ -289,13 +306,14 @@ class GenericPlugin(EmptyPlugin):
 
         or_params = []
         for elem in columns:
-            or_params.append("name.eq."+elem)
+            or_params.append("name.eq." + elem)
         paramquery = ','.join(or_params)
 
         # Get variables by names in columns
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
         latent_join_table_response = requests.get(latent_join_table_url, params={
-                                                  "select": "*,variables_variables!fk_latent_variable(*)", "or": "("+paramquery+")", "variables.order": "variable_order"})
+            "select": "*,variables_variables!fk_latent_variable(*)", "or": "(" + paramquery + ")",
+            "variables.order": "variable_order"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         variables = {}
@@ -313,8 +331,9 @@ class GenericPlugin(EmptyPlugin):
         # latent variable
         final_variables = {}
         for elem in variables:
-            latent_var_request = requests.get("https://api-metadata.mescobrad.digital-enabler.eng.it/variables_variables",
-                                        params = {'latent_variable_id': "eq."+elem})
+            latent_var_request = requests.get(
+                "https://api-metadata.mescobrad.digital-enabler.eng.it/variables_variables",
+                params={'latent_variable_id': "eq." + elem})
             latent_var_list = json.loads(latent_var_request.text)
             if len(latent_var_list) == len(variables[elem]):
                 final_variables[elem] = variables[elem]
@@ -327,13 +346,13 @@ class GenericPlugin(EmptyPlugin):
 
         or_params = []
         for elem in latent_variables.keys():
-            or_params.append("variable_id.eq."+elem)
+            or_params.append("variable_id.eq." + elem)
         paramquery = ','.join(or_params)
 
         # Get all latent variables and path to the file needed for calculation
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
         latent_join_table_response = requests.get(latent_join_table_url, params={
-                                                  "or": "("+paramquery+")", "formula": "neq.null"})
+            "or": "(" + paramquery + ")", "formula": "neq.null"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         return latent_join_json
@@ -378,7 +397,7 @@ class GenericPlugin(EmptyPlugin):
             if self.check_file_content(url, data):
                 # If file is not valid delete file
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
-                                "csv_data/"+file_name).delete()
+                                "csv_data/" + file_name).delete()
                 os.remove(file_path_template.format(filename=file_name))
                 continue
             else:
@@ -393,8 +412,8 @@ class GenericPlugin(EmptyPlugin):
 
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
-                                "csv_data/"+file_name).delete()
-                                
+                                "csv_data/" + file_name).delete()
+
             data = self.calculate_latent_variables(data.columns, data)
             columns_to_remove = [
                 column for column in data.columns if column in columns_with_personal_data]
