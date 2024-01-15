@@ -116,9 +116,8 @@ class GenericPlugin(EmptyPlugin):
     def check_numeric(self, series):
         for value in series.values:
             try:
-                float(value)  # Prova a convertire il valore in un numero float
+                float(value)
             except ValueError:
-                # Se si verifica un'eccezione, significa che il valore non può essere convertito in un numero
                 return True
         return False
 
