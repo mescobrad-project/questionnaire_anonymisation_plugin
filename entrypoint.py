@@ -412,7 +412,7 @@ class GenericPlugin(EmptyPlugin):
 
                 # Remove csv from the bucket
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
-                                "csv_data/" + file_name).delete()
+                                "csv_data/"+file_name).delete()
 
             data = self.calculate_latent_variables(data.columns, data)
             columns_to_remove = [
@@ -447,4 +447,4 @@ class GenericPlugin(EmptyPlugin):
             data.to_parquet(file_path, index=False)
 
         # return anonymized data
-        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize)
+        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize, input_meta.workspace_id)
