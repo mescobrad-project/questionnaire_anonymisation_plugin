@@ -7,6 +7,7 @@ from enum import Enum
 
 
 class DataTypes(Enum):
+    NUMBER = "0"
     INTEGER = "1"
     DECIMAL = "2"
     STRING = "3"
@@ -58,8 +59,8 @@ class GenericPlugin(EmptyPlugin):
                 return True
         return False
 
-    def validate_uploaded_data(self, series, json_response_df):
-        data_type_verification = self.check_data_type(series, json_response_df)
+    def validate_uploaded_data(self, series, json_response_df, errors):
+        data_type_verification = self.check_data_type(series, json_response_df, errors)
         max_answer_verification = self.check_max_answer_allowed(series, json_response_df)
         return data_type_verification or max_answer_verification
 
@@ -75,6 +76,7 @@ class GenericPlugin(EmptyPlugin):
             try:
                 datetime.date.fromisoformat(value)
             except ValueError:
+                errors.append(f"File is not valid for column: {column_name} with the value: {value} and the data type: date")            
                 return True
         return False
 
@@ -83,6 +85,7 @@ class GenericPlugin(EmptyPlugin):
             try:
                 datetime.time.fromisoformat(value)
             except ValueError:
+                errors.append(f"File is not valid for column: {column_name} with the value: {value} and the data type: time")            
                 return True
         return False
 
@@ -91,6 +94,21 @@ class GenericPlugin(EmptyPlugin):
             try:
                 datetime.datetime.fromisoformat(value)
             except ValueError:
+                errors.append(f"File is not valid for column: {column_name} with the value: {value} and the data type: datetime")            
+                return True
+        return False
+
+    def check_date_and_datetime(self, series):
+        parse_functions = [
+            lambda d: datetime.datetime.strptime(d, '%d-%m-%Y'),
+            lambda d: datetime.datetime.strptime(d, '%d/%m/%Y'),
+            lambda d: datetime.datetime.strptime(d, '%Y/%m/%d'),
+            datetime.date.fromisoformat,
+            datetime.datetime.fromisoformat
+        ]
+
+        for value in series:
+            if not any(self.try_parse(value, parse_func) for parse_func in parse_functions):
                 return True
         return False
 
@@ -114,49 +132,62 @@ class GenericPlugin(EmptyPlugin):
         return False
 
     def check_numeric(self, series):
-        for value in series.values:
-            try:
-                float(value)
-            except ValueError:
-                return True
-        return False
+        import pandas as pd
+        return not pd.api.types.is_numeric_dtype(series) or series.dtype == 'int64' or series.dtype == 'float64'
+
 
     def check_boolean(self, series):
-        accepted_boolean_values = ["Yes", "Y", "No", "N"]
+        accepted_boolean_values = ["yes", "y", "no", "n", "1", "0", "true", "false"]
+        # Check if the values are in the accepted list of boolean values (ignore the case)
         for value in series.values:
-            if value not in accepted_boolean_values:
-                return True
+            if value.lower() not in accepted_boolean_values:
+                return True 
         return False
 
     def check_text(self, series):
-        for value in series.values:
-            if not isinstance(value, str):
-                return True
-        return False
-
-    def check_data_type(self, series, json_response_df):
+        import pandas as pd
+        return not pd.api.types.is_string_dtype(series) or series.dtype == 'object'
+        
+    def check_data_type(self, series, json_response_df, errors):
         curr_data_type = json_response_df.loc[json_response_df['name'] == series.name, 'data_type'].values[0]
         curr_list_answers = json_response_df.loc[json_response_df['name'] == series.name, 'measure_level']
         curr_data_type = curr_data_type.lower()
+
         if curr_data_type == DataTypes.CATEGORICAL.value:
-            return self.check_categorical(series, curr_list_answers)
+            if not self.check_categorical(series, curr_list_answers):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Categorical data, found {actual_data_type}")
         elif curr_data_type == DataTypes.ORDINAL.value:
-            return self.check_ordinal(series, curr_list_answers)
-        elif curr_data_type == DataTypes.INTEGER.value or curr_data_type == DataTypes.DECIMAL.value:
-            return self.check_numeric(series)
+            if not self.check_ordinal(series, curr_list_answers):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Ordinal data, found {actual_data_type}")
+        elif curr_data_type in [DataTypes.INTEGER.value, DataTypes.DECIMAL.value, DataTypes.NUMBER.value]:
+            if not self.check_numeric(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Numeric data, found {actual_data_type}")
         elif curr_data_type == DataTypes.BOOLEAN.value:
-            return self.check_boolean(series)
+            if not self.check_boolean(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Boolean data, found {actual_data_type}")
         elif curr_data_type == DataTypes.STRING.value:
-            return self.check_text(series)
+            if not self.check_text(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected String data, found {actual_data_type}")
         elif curr_data_type == DataTypes.DATE.value:
-            return self.check_date(series)
+            if not self.check_date_and_datetime(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Date data, found {actual_data_type}")
         elif curr_data_type == DataTypes.TIME.value:
-            return self.check_time(series)
+            if not self.check_time(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Time data, found {actual_data_type}")
         elif curr_data_type == DataTypes.DATETIME.value:
-            return self.check_datetime(series)
+            if not self.check_date_and_datetime(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected DateTime data, found {actual_data_type}")
         else:
-            # Return True (indicating an error) if the data type is not recognized
-            return True
+            # Append an error message if the data type is not recognized
+            errors.append(f"Unrecognized data type for column '{series.name}'")
 
     def check_file_content(self, url, data):
         """
@@ -173,10 +204,11 @@ class GenericPlugin(EmptyPlugin):
         import requests
         import json
         import pandas as pd
-
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
+        #Save json_response_df to a file
+        json_response_df.to_csv('./json_response_df.csv', index=False)
 
         errors = []  # List to collect errors
 
@@ -186,13 +218,12 @@ class GenericPlugin(EmptyPlugin):
                 errors.append(f"File has unrecognised column(s): {column_name}")
             else:
                 custom_verification = self.validate_uploaded_data(series, json_response_df[
-                    json_response_df['name'] == column_name])
+                    json_response_df['name'] == column_name], errors)
                 if custom_verification:  # If there's an error
                     errors.append(f"File is not valid for column: {column_name}")
 
         if errors:
-            for error in errors:
-                print(error)
+            print(errors)
             return True  # File contains errors
         else:
             print("File is valid")
