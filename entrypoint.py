@@ -1,7 +1,24 @@
 import datetime
 import re
-from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
+from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, \
+    PluginExchangeMetadata
 from datetime import date
+from enum import Enum
+
+
+class DataTypes(Enum):
+    NUMBER = "0"
+    INTEGER = "1"
+    DECIMAL = "2"
+    STRING = "3"
+    DATETIME = "4"
+    BINARY = "5"
+    BOOLEAN = "6"
+    CATEGORICAL = "7"
+    ORDINAL = "8"
+    DATE = "9"
+    TIME = "10"
+
 
 class GenericPlugin(EmptyPlugin):
 
@@ -42,8 +59,135 @@ class GenericPlugin(EmptyPlugin):
                 return True
         return False
 
-    def validate_uploaded_data(self, series, json_response_df):
-        return self.check_max_answer_allowed(series, json_response_df)
+    def validate_uploaded_data(self, series, json_response_df, errors):
+        data_type_verification = self.check_data_type(series, json_response_df, errors)
+        max_answer_verification = self.check_max_answer_allowed(series, json_response_df)
+        return data_type_verification or max_answer_verification
+
+    def split_and_clean(self, curr_list_answers, token=r'[,=]'):
+        curr_list_answers_list = list(
+            curr_list_answers.str.split(token).values)
+        curr_list_answers_list = list(
+            map(str.strip, [item for sublist in curr_list_answers_list for item in sublist]))
+        return curr_list_answers_list
+
+    def check_date(self, series):
+        for value in series.values:
+            try:
+                datetime.date.fromisoformat(value)
+            except ValueError:
+                errors.append(f"File is not valid for column: {column_name} with the value: {value} and the data type: date")            
+                return True
+        return False
+
+    def check_time(self, series):
+        for value in series.values:
+            try:
+                datetime.time.fromisoformat(value)
+            except ValueError:
+                errors.append(f"File is not valid for column: {column_name} with the value: {value} and the data type: time")            
+                return True
+        return False
+
+    def check_datetime(self, series):
+        for value in series.values:
+            try:
+                datetime.datetime.fromisoformat(value)
+            except ValueError:
+                errors.append(f"File is not valid for column: {column_name} with the value: {value} and the data type: datetime")            
+                return True
+        return False
+
+    def check_date_and_datetime(self, series):
+        parse_functions = [
+            lambda d: datetime.datetime.strptime(d, '%d-%m-%Y'),
+            lambda d: datetime.datetime.strptime(d, '%d/%m/%Y'),
+            lambda d: datetime.datetime.strptime(d, '%Y/%m/%d'),
+            datetime.date.fromisoformat,
+            datetime.datetime.fromisoformat
+        ]
+
+        for value in series:
+            if not any(self.try_parse(value, parse_func) for parse_func in parse_functions):
+                return True
+        return False
+
+    def check_categorical(self, series, measure_level):
+        curr_list_answers_list = self.split_and_clean(measure_level, r'[,=]')
+        for combined_value in series.values:
+            # Split the combined value based on ';'
+            if not isinstance(combined_value, str):
+                combined_value = str(combined_value)
+            values = combined_value.split(';')
+            for value in values:
+                if value not in curr_list_answers_list:
+                    return True
+        return False
+
+    def check_ordinal(self, series, measure_level):
+        curr_list_answers_list = self.split_and_clean(measure_level, r'[,]')
+        for value in series.values:
+            if value not in curr_list_answers_list:
+                return True
+        return False
+
+    def check_numeric(self, series):
+        import pandas as pd
+        return not pd.api.types.is_numeric_dtype(series) or series.dtype == 'int64' or series.dtype == 'float64'
+
+
+    def check_boolean(self, series):
+        accepted_boolean_values = ["yes", "y", "no", "n", "1", "0", "true", "false"]
+        # Check if the values are in the accepted list of boolean values (ignore the case)
+        for value in series.values:
+            if value.lower() not in accepted_boolean_values:
+                return True 
+        return False
+
+    def check_text(self, series):
+        import pandas as pd
+        return not pd.api.types.is_string_dtype(series) or series.dtype == 'object'
+        
+    def check_data_type(self, series, json_response_df, errors):
+        curr_data_type = json_response_df.loc[json_response_df['name'] == series.name, 'data_type'].values[0]
+        curr_list_answers = json_response_df.loc[json_response_df['name'] == series.name, 'measure_level']
+        curr_data_type = curr_data_type.lower()
+
+        if curr_data_type == DataTypes.CATEGORICAL.value:
+            if not self.check_categorical(series, curr_list_answers):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Categorical data, found {actual_data_type}")
+        elif curr_data_type == DataTypes.ORDINAL.value:
+            if not self.check_ordinal(series, curr_list_answers):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Ordinal data, found {actual_data_type}")
+        elif curr_data_type in [DataTypes.INTEGER.value, DataTypes.DECIMAL.value, DataTypes.NUMBER.value]:
+            if not self.check_numeric(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Numeric data, found {actual_data_type}")
+        elif curr_data_type == DataTypes.BOOLEAN.value:
+            if not self.check_boolean(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Boolean data, found {actual_data_type}")
+        elif curr_data_type == DataTypes.STRING.value:
+            if not self.check_text(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected String data, found {actual_data_type}")
+        elif curr_data_type == DataTypes.DATE.value:
+            if not self.check_date_and_datetime(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Date data, found {actual_data_type}")
+        elif curr_data_type == DataTypes.TIME.value:
+            if not self.check_time(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected Time data, found {actual_data_type}")
+        elif curr_data_type == DataTypes.DATETIME.value:
+            if not self.check_date_and_datetime(series):
+                actual_data_type = series.dtype
+                errors.append(f"Error in column '{series.name}': Expected DateTime data, found {actual_data_type}")
+        else:
+            # Append an error message if the data type is not recognized
+            errors.append(f"Unrecognized data type for column '{series.name}'")
 
     def check_file_content(self, url, data):
         """
@@ -51,16 +195,20 @@ class GenericPlugin(EmptyPlugin):
         1. Ensures that the column names in the CSV file match the expected variable names in the metadata manager.
         If there's a mismatch, the file will not be processed further.
         2. For each column that matches a variable name:
+        - Verifies the data type to ensure it aligns with what's expected (e.g., categorical, ordinal, numeric, boolean, text).
+        - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
+        - Ensures that values are not empty or null. 
         - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
         If any of these checks fail, the file is considered invalid. The validation has a list of errors that will be displayed to the user once the validation is complete.
         """
         import requests
         import json
         import pandas as pd
-
         response = requests.get(url)
         json_response = json.loads(response.text)
         json_response_df = pd.DataFrame(json_response)
+        #Save json_response_df to a file
+        json_response_df.to_csv('./json_response_df.csv', index=False)
 
         errors = []  # List to collect errors
 
@@ -69,17 +217,18 @@ class GenericPlugin(EmptyPlugin):
             if column_name not in json_response_df['name'].values:
                 errors.append(f"File has unrecognised column(s): {column_name}")
             else:
-                custom_verification = self.validate_uploaded_data(series, json_response_df[json_response_df['name'] == column_name])
+                custom_verification = self.validate_uploaded_data(series, json_response_df[
+                    json_response_df['name'] == column_name], errors)
                 if custom_verification:  # If there's an error
                     errors.append(f"File is not valid for column: {column_name}")
 
         if errors:
-            for error in errors:
-                print(error)
+            print(errors)
             return True  # File contains errors
         else:
             print("File is valid")
             return False  # File is valid
+
     def download_script(self, folder_path, file_name):
         """
         Download python file needed to trigger the calculation of the latent variable
@@ -118,7 +267,7 @@ class GenericPlugin(EmptyPlugin):
 
         create_command = ["python", key]
         for var in variables:
-            create_command.extend(["--"+var, str(row[var])])
+            create_command.extend(["--" + var, str(row[var])])
         return create_command
 
     def calculate_latent_variables(self, columns, data):
@@ -146,7 +295,7 @@ class GenericPlugin(EmptyPlugin):
                 key = os.path.basename(elem['formula'])
                 if key not in latent_to_variables_mapping:
                     latent_to_variables_mapping[key] = variables_of_latent
-                else :
+                else:
                     latent_to_variables_mapping[key].append(variables_of_latent)
 
             # Path to download script to calculate corresponding latent variable
@@ -164,7 +313,7 @@ class GenericPlugin(EmptyPlugin):
                 for index, row in data.iterrows():
                     # Create the correct subprocess call
                     command = self.create_command(
-                        folder_script_path+key, row, latent_to_variables_mapping[key])
+                        folder_script_path + key, row, latent_to_variables_mapping[key])
                     # Execute the calculation of the corresponding latent variable
                     try:
                         result = subprocess.run(
@@ -187,13 +336,14 @@ class GenericPlugin(EmptyPlugin):
 
         or_params = []
         for elem in columns:
-            or_params.append("name.eq."+elem)
+            or_params.append("name.eq." + elem)
         paramquery = ','.join(or_params)
 
         # Get variables by names in columns
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
         latent_join_table_response = requests.get(latent_join_table_url, params={
-                                                  "select": "*,variables_variables!fk_latent_variable(*)", "or": "("+paramquery+")", "variables.order": "variable_order"})
+            "select": "*,variables_variables!fk_latent_variable(*)", "or": "(" + paramquery + ")",
+            "variables.order": "variable_order"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         variables = {}
@@ -211,8 +361,9 @@ class GenericPlugin(EmptyPlugin):
         # latent variable
         final_variables = {}
         for elem in variables:
-            latent_var_request = requests.get("https://api-metadata.mescobrad.digital-enabler.eng.it/variables_variables",
-                                        params = {'latent_variable_id': "eq."+elem})
+            latent_var_request = requests.get(
+                "https://api-metadata.mescobrad.digital-enabler.eng.it/variables_variables",
+                params={'latent_variable_id': "eq." + elem})
             latent_var_list = json.loads(latent_var_request.text)
             if len(latent_var_list) == len(variables[elem]):
                 final_variables[elem] = variables[elem]
@@ -225,13 +376,13 @@ class GenericPlugin(EmptyPlugin):
 
         or_params = []
         for elem in latent_variables.keys():
-            or_params.append("variable_id.eq."+elem)
+            or_params.append("variable_id.eq." + elem)
         paramquery = ','.join(or_params)
 
         # Get all latent variables and path to the file needed for calculation
         latent_join_table_url = "https://api-metadata.mescobrad.digital-enabler.eng.it/variables"
         latent_join_table_response = requests.get(latent_join_table_url, params={
-                                                  "or": "("+paramquery+")", "formula": "neq.null"})
+            "or": "(" + paramquery + ")", "formula": "neq.null"})
         latent_join_json = json.loads(latent_join_table_response.text)
 
         return latent_join_json
@@ -276,7 +427,7 @@ class GenericPlugin(EmptyPlugin):
             if self.check_file_content(url, data):
                 # If file is not valid delete file
                 s3_local.Object(self.__OBJ_STORAGE_BUCKET_LOCAL__,
-                                "csv_data/"+file_name).delete()
+                                "csv_data/" + file_name).delete()
                 os.remove(file_path_template.format(filename=file_name))
                 continue
             else:
