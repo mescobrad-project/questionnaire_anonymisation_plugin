@@ -236,10 +236,55 @@ class GenericPlugin(EmptyPlugin):
 
         return latent_join_json
 
+    def generate_personal_id(self, num_rows, personal_data, data_info):
+        import hashlib
+        import pandas as pd
+
+        # Generate list of unique ids
+        list_id = []
+
+        # Generate PID in case that personal information are sent outside of file
+        # This is only applicable if the file is filled with info of one patient
+        if all(param is not None for param in [data_info['name'], data_info['surname'],
+                                               data_info['date_of_birth'],
+                                               data_info['unique_id']]) and num_rows==1:
+
+            # Make unified dates, so that different formats of date doesn't change the
+            # final id
+            data_info["date_of_birth"] = pd.to_datetime(data_info["date_of_birth"],
+                                                        dayfirst=True)
+
+            data_info["date_of_birth"] = data_info["date_of_birth"].strftime("%d-%m-%Y")
+
+            personal_id = "".join([data_info["name"], data_info['surname'],
+                                   data_info['date_of_birth'], data_info['unique_id']])
+
+            # Remove all whitespaces characters
+            personal_id = "".join(personal_id.split())
+            id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
+            list_id.append(id)
+        else:
+            columns = personal_data.columns
+            if 'first_name' in columns and 'last_name' in columns and 'date_of_birth' \
+                in columns and 'unique_id' in columns:
+                columns_to_generate_id = ['first_name', 'last_name', 'date_of_birth',
+                                          'unique_id']
+            else:
+                columns_to_generate_id = []
+
+            personal_data_to_generate_id = personal_data.loc[:, columns_to_generate_id]
+
+            for i in range(num_rows):
+                personal_id = "".join(personal_data_to_generate_id.iloc[i].astype(str))
+                personal_id = "".join(personal_id.split())
+                id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
+                list_id.append(id)
+
+        return list_id
+
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
         import os
         import pandas as pd
-        import hashlib
         import requests
         import json
         import boto3
@@ -301,17 +346,14 @@ class GenericPlugin(EmptyPlugin):
                 data["date_of_birth"] = pd.to_datetime(
                     data["date_of_birth"], dayfirst=True)
 
-            # Generate list of unique ids
+
             personal_data = data.loc[:, columns_to_remove]
             if "date_of_birth" in personal_data.columns:
                 personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
                     "%d-%m-%Y")
-            list_id = []
 
-            for i in range(data.shape[0]):
-                personal_id = "".join(personal_data.iloc[i].astype(str))
-                id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
-                list_id.append(id)
+            list_id = self.generate_personal_id(data.shape[0], personal_data,
+                                                input_meta.data_info)
 
             data.insert(0, "PID", list_id)
             data.to_parquet(file_path_template.format(
@@ -326,4 +368,5 @@ class GenericPlugin(EmptyPlugin):
             data.to_parquet(file_path, index=False)
 
         # return anonymized data
-        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize, input_meta.workspace_id)
+        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize,
+                                    input_meta.data_info)
