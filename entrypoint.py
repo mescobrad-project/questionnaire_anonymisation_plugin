@@ -80,6 +80,7 @@ class GenericPlugin(EmptyPlugin):
         else:
             print("File is valid")
             return False  # File is valid
+
     def download_script(self, folder_path, file_name):
         """
         Download python file needed to trigger the calculation of the latent variable
@@ -282,6 +283,28 @@ class GenericPlugin(EmptyPlugin):
 
         return list_id
 
+    def calculate_pseudoMRN(self, num_rows, columns, data, data_info):
+        import hashlib
+
+        pseudoMRN_list = []
+
+        if 'MRN' in columns:
+            mrn = data.loc[:, 'MRN']
+
+            # Calculate pseudoMRN for each row
+            for i in range(num_rows):
+                personalMRN = [str(mrn.iloc[i]), data_info['workspace_id']]
+                personal_mrn = "".join(str(data_mrn) for data_mrn in personalMRN)
+
+                # Generate ID
+                pseudoMRN = hashlib.sha256(bytes(personal_mrn, "utf-8")).hexdigest()
+                pseudoMRN_list.append(pseudoMRN)
+
+        else:
+            pseudoMRN_list = [None] * num_rows
+
+        return pseudoMRN_list
+
     def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
         import os
         import pandas as pd
@@ -351,6 +374,30 @@ class GenericPlugin(EmptyPlugin):
             if "date_of_birth" in personal_data.columns:
                 personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
                     "%d-%m-%Y")
+
+            ###### This is just to ensure that MRN is personal data
+            ###### If the variable is properly marked in the variables this is
+            # not needed
+            if 'MRN' in data.columns:
+                columns_to_remove.append('MRN') # this should be personal item
+
+            # If MRN is not given in the csv file, but it is added as a separate
+            # parameter during uploading, attach that paramater to csv, and also
+            # extend columns to remove, since 'MRN' value is a personal value
+            if 'MRN' not in data.columns and 'pseudoMRN' not in data.columns \
+                  and input_meta.data_info['MRN'] is not None:
+                data.insert(0, 'MRN', input_meta.data_info['MRN'])
+                columns_to_remove.append('MRN')
+
+            # If pseudoMRN is not attached along with the uploaded csv,
+            # calculate pseudoMRN based on the MRN and workspace ID values. If
+            # MRN value is not available pseudoMRN is None
+            if 'pseudoMRN' not in data.columns:
+                pseudoMRN = self.calculate_pseudoMRN(data.shape[0],
+                                                     data.columns, data,
+                                                     input_meta.data_info)
+
+                data.insert(0, 'pseudoMRN', pseudoMRN)
 
             list_id = self.generate_personal_id(data.shape[0], personal_data,
                                                 input_meta.data_info)
