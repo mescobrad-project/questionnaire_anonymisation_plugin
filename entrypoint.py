@@ -1,6 +1,5 @@
-import datetime
-import re
-from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
+from mescobrad_edge.plugins.questionnaire_anonymisation_plugin.models.plugin \
+    import EmptyPlugin, PluginActionResponse, PluginExchangeMetadata
 from datetime import date
 
 class GenericPlugin(EmptyPlugin):
@@ -9,7 +8,8 @@ class GenericPlugin(EmptyPlugin):
         # Get today date
         today = date.today()
 
-        # A bool that represents if today's day/month precedes the birth day/month
+        # A bool that represents if today's day/month precedes the birth
+        # day/month
         one_or_zero = ((today.month, today.day) <
                        (birthdate.month, birthdate.day))
 
@@ -47,12 +47,17 @@ class GenericPlugin(EmptyPlugin):
 
     def check_file_content(self, url, data):
         """
-        Validates the content of the uploaded CSV file against the metadata manager:
-        1. Ensures that the column names in the CSV file match the expected variable names in the metadata manager.
+        Validates the content of the uploaded CSV file against the metadata
+        manager:
+        1. Ensures that the column names in the CSV file match the expected
+        variable names in the metadata manager.
         If there's a mismatch, the file will not be processed further.
         2. For each column that matches a variable name:
-        - Checks if the number of answers provided in any row does not exceed the maximum allowed for that variable.
-        If any of these checks fail, the file is considered invalid. The validation has a list of errors that will be displayed to the user once the validation is complete.
+        - Checks if the number of answers provided in any row does not exceed
+        the maximum allowed for that variable.
+        If any of these checks fail, the file is considered invalid. The
+        validation has a list of errors that will be displayed to the user once
+        the validation is complete.
         """
         import requests
         import json
@@ -69,7 +74,8 @@ class GenericPlugin(EmptyPlugin):
             if column_name not in json_response_df['name'].values:
                 errors.append(f"File has unrecognised column(s): {column_name}")
             else:
-                custom_verification = self.validate_uploaded_data(series, json_response_df[json_response_df['name'] == column_name])
+                custom_verification = self.validate_uploaded_data(
+                    series, json_response_df[json_response_df['name'] == column_name])
                 if custom_verification:  # If there's an error
                     errors.append(f"File is not valid for column: {column_name}")
 
@@ -83,7 +89,8 @@ class GenericPlugin(EmptyPlugin):
 
     def download_script(self, folder_path, file_name):
         """
-        Download python file needed to trigger the calculation of the latent variable
+        Download python file needed to trigger the calculation of the latent
+        variable
         """
 
         import os
@@ -93,7 +100,8 @@ class GenericPlugin(EmptyPlugin):
         s3 = boto3.resource('s3',
                             endpoint_url=self.__OBJ_STORAGE_URL__,
                             aws_access_key_id=self.__OBJ_STORAGE_ACCESS_ID__,
-                            aws_secret_access_key=self.__OBJ_STORAGE_ACCESS_SECRET__,
+                            aws_secret_access_key=\
+                                self.__OBJ_STORAGE_ACCESS_SECRET__,
                             config=Config(signature_version='s3v4'),
                             region_name=self.__OBJ_STORAGE_REGION__)
 
@@ -124,8 +132,8 @@ class GenericPlugin(EmptyPlugin):
 
     def calculate_latent_variables(self, columns, data):
         """
-        Perform the calculation of the latent variables which are determine by the data
-        sent as an input csv file to process.
+        Perform the calculation of the latent variables which are determine by
+        the data sent as an input csv file to process.
         """
         import subprocess
         import shutil
@@ -165,8 +173,10 @@ class GenericPlugin(EmptyPlugin):
                 for index, row in data.iterrows():
                     # Create the correct subprocess call
                     command = self.create_command(
-                        folder_script_path+key, row, latent_to_variables_mapping[key])
-                    # Execute the calculation of the corresponding latent variable
+                        folder_script_path+key, row,
+                        latent_to_variables_mapping[key])
+                    # Execute the calculation of the corresponding latent
+                    # variable
                     try:
                         result = subprocess.run(
                             command, capture_output=True, text=True, check=True)
@@ -174,7 +184,8 @@ class GenericPlugin(EmptyPlugin):
                     except subprocess.CalledProcessError as e:
                         print("Error:", e)
 
-                # Add the new latent variable and it's corresponding values into initial dataframe
+                # Add the new latent variable and it's corresponding values into
+                # initial dataframe
                 data[lvar['name']] = result_column
             # Remove downloaded scripts
             shutil.rmtree(folder_script_path)
@@ -244,21 +255,24 @@ class GenericPlugin(EmptyPlugin):
         # Generate list of unique ids
         list_id = []
 
-        # Generate PID in case that personal information are sent outside of file
+        # Generate PID in case that personal information are sent outside of
+        # file
         # This is only applicable if the file is filled with info of one patient
-        if all(param is not None for param in [data_info['name'], data_info['surname'],
-                                               data_info['date_of_birth'],
-                                               data_info['unique_id']]) and num_rows==1:
+        if all(param is not None for param in [
+            data_info['name'], data_info['surname'], data_info['date_of_birth'],
+            data_info['unique_id']]) and num_rows==1:
 
-            # Make unified dates, so that different formats of date doesn't change the
-            # final id
-            data_info["date_of_birth"] = pd.to_datetime(data_info["date_of_birth"],
-                                                        dayfirst=True)
+            # Make unified dates, so that different formats of date doesn't
+            # change the final id
+            data_info["date_of_birth"] = pd.to_datetime(
+                data_info["date_of_birth"], dayfirst=True)
 
-            data_info["date_of_birth"] = data_info["date_of_birth"].strftime("%d-%m-%Y")
+            data_info["date_of_birth"] = \
+                data_info["date_of_birth"].strftime("%d-%m-%Y")
 
             personal_id = "".join([data_info["name"], data_info['surname'],
-                                   data_info['date_of_birth'], data_info['unique_id']])
+                                   data_info['date_of_birth'],
+                                   data_info['unique_id']])
 
             # Remove all whitespaces characters
             personal_id = "".join(personal_id.split())
@@ -266,20 +280,21 @@ class GenericPlugin(EmptyPlugin):
             list_id.append(id)
         else:
             columns = personal_data.columns
-            if 'first_name' in columns and 'last_name' in columns and 'date_of_birth' \
-                in columns and 'unique_id' in columns:
-                columns_to_generate_id = ['first_name', 'last_name', 'date_of_birth',
-                                          'unique_id']
+            if 'first_name' in columns and 'last_name' in columns and \
+                'date_of_birth' in columns and 'unique_id' in columns:
+                columns_to_generate_id = ['first_name', 'last_name',
+                                          'date_of_birth', 'unique_id']
+
+                personal_data_to_generate_id = \
+                    personal_data.loc[:, columns_to_generate_id]
+
+                for i in range(num_rows):
+                    personal_id = "".join(personal_data_to_generate_id.iloc[i].astype(str))
+                    personal_id = "".join(personal_id.split())
+                    id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
+                    list_id.append(id)
             else:
-                columns_to_generate_id = []
-
-            personal_data_to_generate_id = personal_data.loc[:, columns_to_generate_id]
-
-            for i in range(num_rows):
-                personal_id = "".join(personal_data_to_generate_id.iloc[i].astype(str))
-                personal_id = "".join(personal_id.split())
-                id = hashlib.sha256(bytes(personal_id, "utf-8")).hexdigest()
-                list_id.append(id)
+                list_id = [None] * num_rows
 
         return list_id
 
@@ -305,7 +320,8 @@ class GenericPlugin(EmptyPlugin):
 
         return pseudoMRN_list
 
-    def action(self, input_meta: PluginExchangeMetadata = None) -> PluginActionResponse:
+    def action(self, input_meta: PluginExchangeMetadata = None) -> \
+        PluginActionResponse:
         import os
         import pandas as pd
         import requests
@@ -316,8 +332,10 @@ class GenericPlugin(EmptyPlugin):
         # Init client
         s3_local = boto3.resource('s3',
                                   endpoint_url=self.__OBJ_STORAGE_URL_LOCAL__,
-                                  aws_access_key_id=self.__OBJ_STORAGE_ACCESS_ID_LOCAL__,
-                                  aws_secret_access_key=self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
+                                  aws_access_key_id=\
+                                    self.__OBJ_STORAGE_ACCESS_ID_LOCAL__,
+                                  aws_secret_access_key=\
+                                    self.__OBJ_STORAGE_ACCESS_SECRET_LOCAL__,
                                   config=Config(signature_version='s3v4'),
                                   region_name=self.__OBJ_STORAGE_REGION__)
 
@@ -372,8 +390,8 @@ class GenericPlugin(EmptyPlugin):
 
             personal_data = data.loc[:, columns_to_remove]
             if "date_of_birth" in personal_data.columns:
-                personal_data['date_of_birth'] = personal_data['date_of_birth'].dt.strftime(
-                    "%d-%m-%Y")
+                personal_data['date_of_birth'] = \
+                    personal_data['date_of_birth'].dt.strftime("%d-%m-%Y")
 
             ###### This is just to ensure that MRN is personal data
             ###### If the variable is properly marked in the variables this is
@@ -415,5 +433,6 @@ class GenericPlugin(EmptyPlugin):
             data.to_parquet(file_path, index=False)
 
         # return anonymized data
-        return PluginActionResponse("text/csv", files_content, final_files_to_anonymize,
+        return PluginActionResponse("text/csv", files_content,
+                                    final_files_to_anonymize,
                                     input_meta.data_info)
